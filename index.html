@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07090D">
+<title>SwapSpot — Voice Parking Assistant</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307090D'/%3E%3Cpath d='M20 44V20h13a8 8 0 0 1 0 16h-7v8z' fill='%23FF7A1A'/%3E%3Ccircle cx='44' cy='42' r='6' fill='%2322D3EE'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://fastly.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<style>
+/* ============ SwapSpot Design Tokens ============ */
+:root{
+  --bg:#07090D; --bg2:#0B0F16; --surface:#121821; --surface2:#1A2230; --surface3:#222C3C;
+  --border:#232E3D; --border-soft:#1A2330;
+  --text:#EAF0F6; --text-dim:#9AA7B8; --text-faint:#5C6A7C;
+  --brand:#FF7A1A; --brand-soft:rgba(255,122,26,.14); --brand-glow:rgba(255,122,26,.45);
+  --ai:#22D3EE; --ai-soft:rgba(34,211,238,.12); --ai-glow:rgba(34,211,238,.4);
+  --ok:#4ADE80; --ok-soft:rgba(74,222,128,.14);
+  --warn:#FBBF24; --warn-soft:rgba(251,191,36,.14);
+  --bad:#FB7185; --bad-soft:rgba(251,113,133,.14);
+  --radius:18px; --radius-lg:26px;
+  --font:'Manrope',system-ui,sans-serif; --mono:'JetBrains Mono',monospace;
+  --shadow:0 18px 50px rgba(0,0,0,.5);
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px}
+button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select{font-family:inherit}
+::selection{background:var(--brand);color:#000}
+:focus-visible{outline:2px solid var(--ai);outline-offset:2px;border-radius:6px}
+
+/* subtle grid texture */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.045) 1px,transparent 0);
+  background-size:34px 34px;mask-image:radial-gradient(ellipse at 50% 30%,#000 30%,transparent 75%)}
+
+#app{position:relative;z-index:1;height:100%;display:flex;flex-direction:column;max-width:1100px;margin:0 auto}
+
+/* ============ Top Bar ============ */
+.topbar{display:flex;align-items:center;gap:10px;padding:12px 16px;flex-shrink:0}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;letter-spacing:-.02em}
+.brand-mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--brand),#FF4D00);
+  display:grid;place-items:center;box-shadow:0 0 24px var(--brand-glow);flex-shrink:0}
+.brand-mark svg{width:20px;height:20px}
+.brand b{color:var(--brand)}
+.status-pills{display:flex;gap:6px;flex:1;flex-wrap:wrap;justify-content:center}
+.pill{display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:var(--surface);
+  border:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-dim);letter-spacing:.02em}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--text-faint)}
+.pill.on .dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.pill.on{color:var(--text);border-color:rgba(74,222,128,.3)}
+.pill.ai-on .dot{background:var(--ai);box-shadow:0 0 8px var(--ai)}
+.icon-btn{width:42px;height:42px;border-radius:12px;background:var(--surface);border:1px solid var(--border);
+  display:grid;place-items:center;flex-shrink:0;transition:transform .15s,background .2s}
+.icon-btn:active{transform:scale(.93)}
+.icon-btn svg{width:20px;height:20px;stroke:var(--text-dim);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.icon-btn.active{background:var(--ai-soft);border-color:rgba(34,211,238,.4)}
+.icon-btn.active svg{stroke:var(--ai)}
+
+/* ============ Views ============ */
+.view{flex:1;display:none;flex-direction:column;min-height:0;animation:viewIn .35s cubic-bezier(.22,1,.36,1)}
+.view.active{display:flex}
+@keyframes viewIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+/* ============ Drive View (home) ============ */
+.drive{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:8px 18px calc(18px + var(--safe-b));min-height:0}
+.drive-top{width:100%;display:flex;flex-direction:column;gap:10px}
+.nearest-card{background:linear-gradient(135deg,var(--surface),var(--surface2));border:1px solid var(--border);
+  border-radius:var(--radius);padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:border-color .2s}
+.nearest-card:active{border-color:var(--brand)}
+.nearest-card .avail{font-size:34px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.nearest-card .avail small{font-size:13px;color:var(--text-dim);font-weight:600}
+.nearest-card .meta{flex:1;min-width:0}
+.nearest-card .meta .name{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nearest-card .meta .sub{font-size:12px;color:var(--text-dim);margin-top:3px}
+.nearest-card .go{color:var(--brand);font-weight:700;font-size:13px;flex-shrink:0}
+.st-ok{color:var(--ok)} .st-warn{color:var(--warn)} .st-bad{color:var(--bad)}
+
+.voice-stage{display:flex;flex-direction:column;align-items:center;gap:18px;width:100%}
+.ai-line{min-height:56px;max-width:520px;text-align:center;font-size:19px;font-weight:600;line-height:1.4;color:var(--text);
+  padding:0 10px;transition:opacity .3s}
+.ai-line .dim{color:var(--text-faint);font-weight:500}
+.ai-line.speaking{color:var(--ai)}
+.transcript{min-height:24px;font-size:14px;color:var(--text-dim);font-style:italic;max-width:520px;text-align:center;
+  padding:0 14px;white-space:pre-wrap}
+.transcript .interim{opacity:.55}
+
+/* Mic orb */
+.orb-wrap{position:relative;width:148px;height:148px;display:grid;place-items:center;cursor:pointer}
+.orb-ring{position:absolute;inset:0;border-radius:50%;border:2px solid var(--border);transition:border-color .3s}
+.orb-wrap.listening .orb-ring{border-color:var(--ai);animation:pulseRing 1.6s ease-out infinite}
+.orb-wrap.speaking .orb-ring{border-color:var(--brand);animation:pulseRing 1.2s ease-out infinite}
+@keyframes pulseRing{0%{transform:scale(1);opacity:.9}100%{transform:scale(1.35);opacity:0}}
+.orb{width:116px;height:116px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#2A3546,var(--surface) 70%);
+  border:1px solid var(--border);display:grid;place-items:center;box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.06);
+  transition:transform .15s,background .3s;position:relative;z-index:2}
+.orb:active{transform:scale(.95)}
+.orb svg{width:44px;height:44px;stroke:var(--text);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.orb-wrap.listening .orb{background:radial-gradient(circle at 35% 30%,rgba(34,211,238,.35),rgba(34,211,238,.08) 70%);border-color:rgba(34,211,238,.5)}
+.orb-wrap.listening .orb svg{stroke:var(--ai)}
+.orb-wrap.speaking .orb{background:radial-gradient(circle at 35% 30%,rgba(255,122,26,.35),rgba(255,122,26,.08) 70%);border-color:rgba(255,122,26,.5)}
+.orb-wrap.speaking .orb svg{stroke:var(--brand)}
+.orb-hint{font-size:12px;color:var(--text-faint);letter-spacing:.08em;text-transform:uppercase;font-weight:700;margin-top:-6px}
+
+/* waveform canvas */
+#waveform{position:absolute;inset:-10px;pointer-events:none;z-index:1}
+
+.chips{display:flex;gap:10px;width:100%;max-width:520px;flex-wrap:wrap;justify-content:center}
+.chip{flex:1;min-width:130px;max-width:200px;padding:14px 12px;border-radius:14px;background:var(--surface);
+  border:1px solid var(--border);font-size:13px;font-weight:700;color:var(--text);text-align:center;transition:all .15s}
+.chip:active{transform:scale(.96);border-color:var(--ai);background:var(--ai-soft)}
+.chip .sub{display:block;font-size:11px;color:var(--text-faint);font-weight:500;margin-top:3px}
+
+/* ============ Map View ============ */
+.map-view{position:relative;flex:1;min-height:0}
+#map{position:absolute;inset:0;z-index:1;background:#0B0F16}
+.map-overlay{position:absolute;inset:0;pointer-events:none;z-index:500;display:flex;flex-direction:column;justify-content:space-between;padding:12px}
+.map-top{display:flex;gap:8px;pointer-events:auto;justify-content:space-between;align-items:flex-start}
+.map-search{flex:1;max-width:340px;display:flex;align-items:center;gap:8px;background:var(--surface);
+  border:1px solid var(--border);border-radius:14px;padding:10px 14px;backdrop-filter:blur(10px)}
+.map-search input{flex:1;background:none;border:none;color:var(--text);font-size:14px;outline:none;min-width:0}
+.map-search input::placeholder{color:var(--text-faint)}
+.map-search svg{width:18px;height:18px;stroke:var(--text-faint);fill:none;stroke-width:2;flex-shrink:0}
+.map-fabs{display:flex;flex-direction:column;gap:8px;pointer-events:auto}
+.fab{width:46px;height:46px;border-radius:14px;background:var(--surface);border:1px solid var(--border);
+  display:grid;place-items:center;backdrop-filter:blur(10px)}
+.fab svg{width:20px;height:20px;stroke:var(--text);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.fab.active{background:var(--brand-soft);border-color:var(--brand)}
+.fab.active svg{stroke:var(--brand)}
+
+.lots-sheet{pointer-events:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg) var(--radius-lg) 0 0;
+  max-height:46%;min-height:140px;display:flex;flex-direction:column;box-shadow:0 -10px 40px rgba(0,0,0,.5);overflow:hidden}
+.sheet-handle{width:44px;height:5px;border-radius:3px;background:var(--border);margin:8px auto 4px;flex-shrink:0}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:6px 16px 10px;flex-shrink:0}
+.sheet-head .t{font-weight:800;font-size:15px}
+.sheet-head .t span{color:var(--text-faint);font-weight:600;font-size:12px;margin-left:6px}
+.filter-row{display:flex;gap:6px;padding:0 16px 10px;overflow-x:auto;flex-shrink:0;scrollbar-width:none}
+.filter-row::-webkit-scrollbar{display:none}
+.filter-chip{padding:7px 13px;border-radius:999px;background:var(--surface2);border:1px solid var(--border);
+  font-size:12px;font-weight:700;color:var(--text-dim);white-space:nowrap;flex-shrink:0}
+.filter-chip.on{background:var(--ai-soft);border-color:rgba(34,211,238,.5);color:var(--ai)}
+.lots-list{flex:1;overflow-y:auto;padding:0 12px 12px;display:flex;flex-direction:column;gap:8px}
+.lot-row{display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;background:var(--surface2);
+  border:1px solid transparent;cursor:pointer;transition:border-color .15s}
+.lot-row:active,.lot-row.sel{border-color:var(--brand)}
+.lot-row .avail-badge{width:54px;text-align:center;flex-shrink:0}
+.lot-row .avail-badge .n{font-size:22px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.lot-row .avail-badge .l{font-size:10px;color:var(--text-faint);font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-top:2px}
+.lot-row .info{flex:1;min-width:0}
+.lot-row .info .nm{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lot-row .info .dt{font-size:12px;color:var(--text-dim);margin-top:3px;display:flex;gap:8px;flex-wrap:wrap}
+.lot-row .price{font-size:14px;font-weight:800;color:var(--text);flex-shrink:0;text-align:right}
+.lot-row .price small{display:block;font-size:10px;color:var(--text-faint);font-weight:600}
+.feat-dot{display:inline-flex;align-items:center;gap:3px;font-size:10px;color:var(--text-faint);font-weight:600}
+.feat-dot svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2.2}
+
+/* custom leaflet */
+.leaflet-container{background:#0B0F16;font-family:var(--font)}
+/* darken OSM tiles without inverting colored markers (filter applies to tile pane only) */
+.leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.94) contrast(.9) saturate(.6)}
+body.light .leaflet-tile-pane{filter:none}
+.leaflet-control-attribution{background:rgba(7,9,13,.7)!important;color:var(--text-faint)!important;font-size:9px!important}
+.leaflet-control-attribution a{color:var(--text-dim)!important}
+.leaflet-bar{border:none!important;box-shadow:var(--shadow)!important}
+.leaflet-bar a{background:var(--surface)!important;color:var(--text)!important;border-bottom:1px solid var(--border)!important}
+.lot-marker{width:38px;height:38px;border-radius:12px 12px 12px 4px;display:grid;place-items:center;
+  font-weight:800;font-size:13px;color:#06080C;transform:rotate(-45deg);box-shadow:0 4px 14px rgba(0,0,0,.5);border:2px solid rgba(255,255,255,.15)}
+.lot-marker span{transform:rotate(45deg);font-variant-numeric:tabular-nums}
+.mk-ok{background:var(--ok)} .mk-warn{background:var(--warn)} .mk-bad{background:var(--bad)} .mk-full{background:#3A4350;color:var(--text-dim)}
+.user-marker{width:18px;height:18px;border-radius:50%;background:var(--ai);border:3px solid #fff;box-shadow:0 0 0 6px rgba(34,211,238,.25)}
+.nav-marker{width:20px;height:20px;border-radius:50%;background:var(--brand);border:3px solid #fff;box-shadow:0 0 0 8px rgba(255,122,26,.25)}
+
+/* ============ Lot Detail ============ */
+.detail{flex:1;overflow-y:auto;padding:8px 18px calc(20px + var(--safe-b));display:flex;flex-direction:column;gap:14px}
+.back-row{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.back-btn{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:700;color:var(--text-dim);padding:8px 4px}
+.back-btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.detail-hero{background:linear-gradient(135deg,var(--surface),var(--surface2));border:1px solid var(--border);
+  border-radius:var(--radius-lg);padding:20px;position:relative;overflow:hidden}
+.detail-hero::after{content:"";position:absolute;right:-40px;top:-40px;width:160px;height:160px;border-radius:50%;
+  background:radial-gradient(circle,var(--brand-soft),transparent 70%)}
+.detail-hero h2{font-size:22px;font-weight:800;letter-spacing:-.02em;padding-right:40px}
+.detail-hero .addr{font-size:13px;color:var(--text-dim);margin-top:6px;display:flex;align-items:center;gap:6px}
+.detail-hero .addr svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;flex-shrink:0}
+.occ-stats{display:flex;gap:10px;margin-top:16px}
+.occ-stat{flex:1;background:rgba(0,0,0,.25);border:1px solid var(--border-soft);border-radius:14px;padding:12px;text-align:center}
+.occ-stat .v{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+.occ-stat .k{font-size:11px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:5px}
+.occ-bar{height:8px;border-radius:4px;background:rgba(0,0,0,.35);margin-top:14px;overflow:hidden}
+.occ-bar > div{height:100%;border-radius:4px;transition:width .6s cubic-bezier(.22,1,.36,1)}
+.occ-bar-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--text-faint);margin-top:6px;font-weight:600}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.info-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+.info-card .k{font-size:11px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.info-card .v{font-size:16px;font-weight:700;margin-top:5px}
+.info-card .v small{font-size:12px;color:var(--text-dim);font-weight:600}
+.feats{display:flex;flex-wrap:wrap;gap:8px}
+.feat{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:var(--surface2);
+  border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--text-dim)}
+.feat svg{width:14px;height:14px;stroke:var(--ai);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.feat.off{opacity:.35}
+.cta-row{display:flex;gap:10px;position:sticky;bottom:0;padding-top:4px;background:linear-gradient(to top,var(--bg) 60%,transparent)}
+.btn{flex:1;padding:17px;border-radius:16px;font-size:15px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .12s}
+.btn:active{transform:scale(.97)}
+.btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.btn-primary{background:linear-gradient(135deg,var(--brand),#FF5A00);color:#0A0602;box-shadow:0 8px 28px var(--brand-glow)}
+.btn-ghost{background:var(--surface);border:1px solid var(--border);color:var(--text)}
+.btn-ai{background:linear-gradient(135deg,var(--ai),#0891B2);color:#031014;box-shadow:0 8px 28px var(--ai-glow)}
+
+/* ============ Navigation View ============ */
+.nav-view{flex:1;display:flex;flex-direction:column;padding:10px 18px calc(16px + var(--safe-b));gap:12px;min-height:0}
+.nav-top{display:flex;align-items:center;justify-content:space-between}
+.nav-dest{font-size:13px;color:var(--text-dim);font-weight:600;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;min-height:0;text-align:center}
+.nav-arrow{width:110px;height:110px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);
+  display:grid;place-items:center;transition:transform .5s cubic-bezier(.22,1,.36,1)}
+.nav-arrow svg{width:56px;height:56px;stroke:var(--brand);fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.nav-dist{font-size:46px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
+.nav-dist small{font-size:18px;color:var(--text-dim);font-weight:700;margin-left:4px}
+.nav-street{font-size:20px;font-weight:700;color:var(--text)}
+.nav-eta-row{display:flex;gap:10px;width:100%}
+.nav-eta{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px;text-align:center}
+.nav-eta .v{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+.nav-eta .k{font-size:10px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:3px}
+.nav-progress{width:100%;height:6px;border-radius:3px;background:var(--surface2);overflow:hidden}
+.nav-progress > div{height:100%;background:linear-gradient(90deg,var(--brand),var(--ai));border-radius:3px;transition:width .5s}
+.nav-mini-map{width:100%;height:130px;border-radius:14px;border:1px solid var(--border);overflow:hidden;position:relative;flex-shrink:0}
+#miniMap{position:absolute;inset:0;z-index:1}
+
+/* ============ Settings ============ */
+.settings{flex:1;overflow-y:auto;padding:8px 18px calc(24px + var(--safe-b));display:flex;flex-direction:column;gap:14px}
+.set-group{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.set-group .gh{padding:14px 16px 8px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--text-faint)}
+.set-row{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-top:1px solid var(--border-soft);gap:14px}
+.set-row .lbl{font-size:14px;font-weight:600}
+.set-row .lbl small{display:block;font-size:11px;color:var(--text-faint);font-weight:500;margin-top:2px}
+.toggle{width:50px;height:28px;border-radius:14px;background:var(--surface3);position:relative;transition:background .2s;flex-shrink:0;cursor:pointer}
+.toggle::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .2s cubic-bezier(.22,1,.36,1)}
+.toggle.on{background:var(--ai)}
+.toggle.on::after{transform:translateX(22px)}
+select.set-sel{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 12px;border-radius:10px;font-size:13px;font-weight:600;outline:none;max-width:160px}
+input[type=range].set-range{width:120px;accent-color:var(--ai)}
+.range-val{font-family:var(--mono);font-size:12px;color:var(--ai);font-weight:600;min-width:44px;text-align:right}
+.hint-box{background:var(--ai-soft);border:1px solid rgba(34,211,238,.25);border-radius:14px;padding:14px 16px;font-size:12.5px;color:var(--text-dim);line-height:1.55}
+.hint-box b{color:var(--ai)}
+.voice-cmds{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.voice-cmd{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--text-dim);font-family:var(--mono)}
+.voice-cmd b{color:var(--text);font-weight:600}
+
+/* toast */
+#toast{position:fixed;left:50%;bottom:calc(24px + var(--safe-b));transform:translateX(-50%) translateY(20px);background:var(--surface3);
+  border:1px solid var(--border);color:var(--text);padding:12px 20px;border-radius:12px;font-size:13px;font-weight:600;
+  opacity:0;pointer-events:none;transition:all .3s;z-index:9999;max-width:86%;text-align:center;box-shadow:var(--shadow)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* unsupported banner */
+#micWarn{display:none;background:var(--warn-soft);border:1px solid rgba(251,191,36,.35);color:var(--warn);
+  padding:10px 16px;font-size:12px;font-weight:600;text-align:center;border-radius:12px;margin:0 16px}
+#micWarn.show{display:block}
+
+@media (min-width:768px){
+  .drive{padding:12px 32px calc(24px + var(--safe-b))}
+  .orb-wrap{width:170px;height:170px}.orb{width:132px;height:132px}
+  .ai-line{font-size:22px}
+  .detail,.settings{padding:8px 32px calc(28px + var(--safe-b))}
+  .voice-cmds{grid-template-columns:1fr 1fr 1fr}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ============ v2: Light theme ============ */
+body.light{--bg:#EEF1F6;--bg2:#E4E9F0;--surface:#FFFFFF;--surface2:#F4F6FA;--surface3:#E8ECF2;
+  --border:#D8DEE8;--border-soft:#E6EBF2;--text:#1A2230;--text-dim:#5A6677;--text-faint:#93A0B0;
+  --brand:#FF7A1A;--ok:#16A34A;--warn:#D97706;--bad:#E11D48;--ai:#0891B2;}
+body.light::before{background-image:radial-gradient(circle at 1px 1px,rgba(0,0,0,.05) 1px,transparent 0)}
+body.light .nearest-card,body.light .info-card,body.light .detail-hero,body.light .set-group,body.light .hint-box,body.light .chip,body.light .lot-row,body.light .map-search,body.light .fab,body.light .icon-btn,body.light .pill,body.light .lots-sheet,body.light .filter-chip,body.light .nav-eta{background:var(--surface)}
+body.light .orb{background:radial-gradient(circle at 35% 30%,#FFFFFF,var(--surface2) 70%)}
+
+/* ============ v2: Barrier loader ============ */
+#loader{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;
+  background:rgba(7,9,13,.72);backdrop-filter:blur(8px)}
+#loader.show{display:flex;animation:fadeIn .25s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.loader-card{background:#fff;border-radius:28px;padding:32px 40px 28px;text-align:center;box-shadow:0 30px 80px rgba(0,0,0,.5);
+  max-width:320px;width:82%;animation:popIn .4s cubic-bezier(.22,1,.36,1)}
+@keyframes popIn{from{transform:scale(.85) translateY(10px);opacity:0}to{transform:none;opacity:1}}
+.loader-card img{width:150px;height:132px;object-fit:contain;display:block;margin:0 auto}
+.loader-card .lt{font-size:17px;font-weight:800;color:#1A2230;margin-top:14px;letter-spacing:-.01em}
+.loader-card .ls{font-size:12.5px;color:#7A8696;margin-top:5px;font-weight:600}
+.loader-dots{display:flex;gap:5px;justify-content:center;margin-top:16px}
+.loader-dots span{width:7px;height:7px;border-radius:50%;background:#FF7A1A;animation:ldot 1.2s infinite ease-in-out}
+.loader-dots span:nth-child(2){animation-delay:.15s;background:#22D3EE}
+.loader-dots span:nth-child(3){animation-delay:.3s;background:#4ADE80}
+@keyframes ldot{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+
+/* ============ v2: Spot select ("Your Parking") ============ */
+.spots-view{flex:1;overflow-y:auto;padding:8px 18px calc(24px + var(--safe-b));display:flex;flex-direction:column;gap:14px}
+.spots-head{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.spots-title{font-size:20px;font-weight:800;letter-spacing:-.02em}
+.spots-title span{display:block;font-size:12px;color:var(--text-dim);font-weight:600;margin-top:2px}
+.spot-legend{display:flex;gap:10px;font-size:11px;font-weight:700;color:var(--text-dim);flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+.spot-legend i{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:4px;vertical-align:-1px}
+.spot-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.spot-cell{aspect-ratio:1.5/1;border-radius:16px;position:relative;overflow:hidden;cursor:pointer;
+  border:2px solid transparent;transition:transform .15s,border-color .2s;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.spot-cell:active{transform:scale(.97)}
+.spot-cell .sp-id{position:absolute;top:8px;left:10px;font-size:11px;font-weight:800;color:var(--text-faint);font-family:var(--mono)}
+.spot-cell.free{background:repeating-linear-gradient(45deg,var(--surface2),var(--surface2) 10px,var(--surface) 10px,var(--surface) 20px);border-color:var(--border)}
+.spot-cell.free:hover,.spot-cell.free.sel{border-color:var(--ok)}
+.spot-cell.free .sp-status{font-size:14px;font-weight:800;color:var(--ok)}
+.spot-cell.free .sp-sub{font-size:11px;color:var(--text-faint);font-weight:600}
+.spot-cell.occ{background:repeating-linear-gradient(45deg,rgba(251,113,133,.10),rgba(251,113,133,.10) 10px,transparent 10px,transparent 20px);cursor:not-allowed}
+.spot-cell.occ .car-svg{width:64%;max-width:90px}
+.spot-cell.booked{background:repeating-linear-gradient(45deg,rgba(251,191,36,.12),rgba(251,191,36,.12) 10px,transparent 10px,transparent 20px);cursor:not-allowed}
+.spot-cell.booked .bk{display:flex;flex-direction:column;align-items:center;gap:5px;color:var(--warn);font-weight:800;font-size:13px}
+.spot-cell.booked .bk svg{width:22px;height:22px;stroke:var(--warn);fill:none;stroke-width:2}
+.spot-cell.mine{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+.spot-cell.mine::after{content:"YOURS";position:absolute;top:8px;right:10px;font-size:9px;font-weight:800;color:var(--brand);letter-spacing:.08em}
+.car-svg{filter:drop-shadow(0 3px 4px rgba(0,0,0,.25))}
+
+/* ============ v2: Parking session card ============ */
+.session-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;display:flex;flex-direction:column;gap:14px}
+.session-row{display:flex;align-items:center;justify-content:space-between}
+.session-row .lbl{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:800}
+.session-row .lbl svg{width:22px;height:22px;stroke:var(--text-dim);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.btn-park{padding:11px 26px;border-radius:999px;background:var(--ok);color:#fff;font-weight:800;font-size:14px;box-shadow:0 6px 18px rgba(22,163,74,.4)}
+.btn-park.ended{background:var(--bad);box-shadow:0 6px 18px rgba(225,29,72,.35)}
+.day-tabs{display:flex;gap:8px;background:var(--surface2);padding:5px;border-radius:14px}
+.day-tab{flex:1;padding:11px;border-radius:10px;font-size:13px;font-weight:700;color:var(--text-dim);text-align:center}
+.day-tab.on{background:var(--text);color:var(--bg);box-shadow:0 2px 8px rgba(0,0,0,.2)}
+body.light .day-tab.on{background:#1A2230;color:#fff}
+.dial-wrap{display:flex;flex-direction:column;align-items:center;gap:8px;padding:6px 0 2px}
+.dial{width:200px;height:200px;position:relative}
+.dial svg{transform:rotate(-90deg)}
+.dial-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.dial-center .t{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.dial-center .s{font-size:11px;color:var(--text-faint);font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+.dial-alert{font-size:13px;color:var(--text-dim);font-weight:600;display:flex;align-items:center;gap:6px}
+.dial-alert svg{width:15px;height:15px;stroke:var(--warn);fill:none;stroke-width:2}
+
+/* ============ v2: Live camera AI detection ============ */
+.cam-view{flex:1;position:relative;min-height:0;overflow:hidden;background:#000}
+#camBg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(1.05) contrast(1.05)}
+.cam-overlay{position:absolute;inset:0;z-index:2}
+.det-box{position:absolute;border:2px solid;animation:detPulse 2s ease-in-out infinite}
+.det-box.free{border-color:#4ADE80;box-shadow:0 0 0 1px rgba(74,222,128,.3)}
+.det-box.occ{border-color:#FB7185;box-shadow:0 0 0 1px rgba(251,113,133,.3)}
+.det-box.ev{border-color:#FBBF24}
+.det-box .tag{position:absolute;top:-19px;left:-2px;font-size:9px;font-weight:800;padding:2px 6px;border-radius:4px;color:#06080C;letter-spacing:.04em;font-family:var(--mono)}
+.det-box.free .tag{background:#4ADE80}.det-box.occ .tag{background:#FB7185}.det-box.ev .tag{background:#FBBF24}
+@keyframes detPulse{0%,100%{opacity:.85}50%{opacity:1}}
+.cam-scan{position:absolute;left:0;right:0;height:80px;z-index:3;background:linear-gradient(to bottom,transparent,rgba(34,211,238,.18),transparent);
+  animation:scanMove 3.5s linear infinite;pointer-events:none}
+@keyframes scanMove{0%{top:-15%}100%{top:110%}}
+.cam-hud{position:absolute;top:12px;left:12px;right:12px;z-index:5;display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.live-badge{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.15);
+  padding:6px 12px;border-radius:999px;font-size:11px;font-weight:800;color:#fff;letter-spacing:.06em}
+.live-badge .dot{width:7px;height:7px;border-radius:50%;background:#EF4444;animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.2}}
+.cam-stats{display:flex;gap:6px}
+.cam-stat{background:rgba(0,0,0,.6);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:6px 10px;text-align:center}
+.cam-stat .v{font-size:15px;font-weight:800;color:#fff;font-variant-numeric:tabular-nums}
+.cam-stat .k{font-size:8.5px;color:rgba(255,255,255,.6);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.cam-bottom{position:absolute;bottom:calc(14px + var(--safe-b));left:12px;right:12px;z-index:5;display:flex;gap:10px;align-items:flex-end}
+.cam-info{flex:1;background:rgba(0,0,0,.65);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px 14px;color:#fff}
+.cam-info .nm{font-weight:800;font-size:14px}
+.cam-info .sub{font-size:11.5px;color:rgba(255,255,255,.65);margin-top:3px;font-weight:600}
+
+/* ============ v3: Mascot + map action bar ============ */
+.mascot-wrap{display:flex;justify-content:center;line-height:0}
+.mascot-wrap img{width:104px;height:72px;object-fit:contain;filter:drop-shadow(0 6px 14px rgba(34,211,238,.35));transition:transform .3s}
+.mascot-wrap.speaking img{animation:mascotBounce 1.1s ease-in-out infinite;filter:drop-shadow(0 6px 18px rgba(255,122,26,.5))}
+@keyframes mascotBounce{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-7px) rotate(2deg)}}
+.mascot-wrap.listening img{animation:mascotNod 1.6s ease-in-out infinite;filter:drop-shadow(0 6px 14px rgba(74,222,128,.4))}
+@keyframes mascotNod{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+
+.map-action{pointer-events:auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;
+  padding:10px 12px;display:none;align-items:center;gap:10px;backdrop-filter:blur(10px);box-shadow:var(--shadow);margin-bottom:8px;animation:viewIn .3s cubic-bezier(.22,1,.36,1)}
+.map-action.show{display:flex}
+.ma-info{flex:1;min-width:0}
+.ma-name{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ma-sub{font-size:11.5px;color:var(--text-dim);margin-top:2px;font-weight:600}
+.ma-btns{display:flex;gap:6px;flex-shrink:0}
+.ma-btn{width:40px;height:40px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);display:grid;place-items:center;flex-shrink:0}
+.ma-btn:active{transform:scale(.93)}
+.ma-btn svg{width:18px;height:18px;stroke:var(--text);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.ma-btn.primary{background:linear-gradient(135deg,var(--brand),#FF5A00);border:none}
+.ma-btn.primary svg{stroke:#0A0602}
+.ma-btn.ai{background:var(--ai-soft);border-color:rgba(34,211,238,.4)}.ma-btn.ai svg{stroke:var(--ai)}
+.ma-btn.cam svg{stroke:var(--warn)}
+.ma-btn.ma-detail{font-size:20px;font-weight:800;color:var(--text-dim);background:none;border:none}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ===== Top Bar ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#0A0602" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17V7h4a3 3 0 0 1 0 6h-4"/></svg>
+      </div>
+      <span>Swap<b>Spot</b></span>
+    </div>
+    <div class="status-pills">
+      <div class="pill on" id="pillGps"><span class="dot"></span>GPS</div>
+      <div class="pill" id="pillMic"><span class="dot"></span>Mic</div>
+      <div class="pill" id="pillVoice"><span class="dot"></span>Voice</div>
+      <div class="pill" id="pillData"><span class="dot"></span>Live Data</div>
+    </div>
+    <button class="icon-btn" id="muteBtn" title="Mute voice"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/></svg></button>
+    <button class="icon-btn" id="settingsBtn" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </header>
+
+  <div id="micWarn">Voice input isn't supported in this browser (try Chrome/Edge). Text fallback is active — tap the mic to type.</div>
+
+  <!-- ===== View: Drive (home) ===== -->
+  <section class="view active" id="view-drive">
+    <div class="drive">
+      <div class="drive-top">
+        <div class="nearest-card" id="nearestCard">
+          <div class="avail st-ok" id="nearestAvail">—<small> free</small></div>
+          <div class="meta">
+            <div class="name" id="nearestName">Finding nearby parking…</div>
+            <div class="sub" id="nearestSub">Voice-ready · say "find parking"</div>
+          </div>
+          <div class="go">View ›</div>
+        </div>
+      </div>
+
+      <div class="voice-stage">
+        <div class="mascot-wrap" id="mascotWrap"><img src="assets/mascot.gif" alt="SwapSpot assistant mascot"></div>
+        <div class="ai-line" id="aiLine"><span class="dim">Tap the button or say <b style="color:var(--ai)">“Hey SwapSpot”</b> to ask for parking.</span></div>
+        <div class="transcript" id="transcript"></div>
+        <div class="orb-wrap" id="orb">
+          <canvas id="waveform" width="300" height="300"></canvas>
+          <div class="orb-ring"></div>
+          <div class="orb" id="orbBtn">
+            <svg viewBox="0 0 24 24" id="orbIcon"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3"/></svg>
+          </div>
+        </div>
+        <div class="orb-hint" id="orbHint">Tap to talk</div>
+      </div>
+
+      <div class="chips">
+        <button class="chip" data-cmd="find parking">Find parking<span class="sub">nearest open spots</span></button>
+        <button class="chip" data-cmd="cheapest parking">Cheapest nearby<span class="sub">best value today</span></button>
+        <button class="chip" data-cmd="ev charging parking">EV charging<span class="sub">lots with chargers</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== View: Map ===== -->
+  <section class="view" id="view-map">
+    <div class="map-view">
+      <div id="map"></div>
+      <div class="map-overlay">
+        <div class="map-top">
+          <div class="map-search">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input id="mapSearch" placeholder="Search lot or area…" autocomplete="off">
+          </div>
+          <div class="map-fabs">
+            <button class="fab" id="fabLocate" title="My location"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+            <button class="fab active" id="fabLive" title="Live availability"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+          </div>
+        </div>
+        <div class="map-action" id="mapAction">
+          <div class="ma-info"><div class="ma-name" id="maName">—</div><div class="ma-sub" id="maSub">—</div></div>
+          <div class="ma-btns">
+            <button class="ma-btn primary" id="maNav" title="Navigate"><svg viewBox="0 0 24 24"><path d="M3 11l19-8-8 19-2-8z"/></svg></button>
+            <button class="ma-btn ai" id="maSpot" title="Choose spot"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
+            <button class="ma-btn cam" id="maCam" title="Live camera"><svg viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></button>
+            <button class="ma-btn ma-detail" id="maDetail" title="Details">›</button>
+          </div>
+        </div>
+        <div class="lots-sheet">
+          <div class="sheet-handle"></div>
+          <div class="sheet-head"><div class="t">Nearby parking <span id="lotCount"></span></div></div>
+          <div class="filter-row" id="filterRow">
+            <button class="filter-chip on" data-f="all">All</button>
+            <button class="filter-chip" data-f="open">Open now</button>
+            <button class="filter-chip" data-f="free">Free</button>
+            <button class="filter-chip" data-f="ev">EV charging</button>
+            <button class="filter-chip" data-f="disabled">Accessible</button>
+            <button class="filter-chip" data-f="covered">Covered</button>
+            <button class="filter-chip" data-f="cheap">Under ฿40/hr</button>
+          </div>
+          <div class="lots-list" id="lotsList"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== View: Lot Detail ===== -->
+  <section class="view" id="view-detail">
+    <div class="detail" id="detailBody"></div>
+  </section>
+
+  <!-- ===== View: Navigation ===== -->
+  <section class="view" id="view-nav">
+    <div class="nav-view">
+      <div class="nav-top">
+        <div class="nav-dest" id="navDest">Navigating…</div>
+        <button class="icon-btn" id="navCancel" title="Cancel navigation"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="nav-main">
+        <div class="nav-arrow" id="navArrow"><svg viewBox="0 0 24 24" id="navArrowSvg"><path d="M12 19V5M5 12l7-7 7 7"/></svg></div>
+        <div class="nav-dist" id="navDist">—<small>m</small></div>
+        <div class="nav-street" id="navStreet">Calculating route…</div>
+      </div>
+      <div class="nav-mini-map"><div id="miniMap"></div></div>
+      <div class="nav-progress"><div id="navProgressBar" style="width:0%"></div></div>
+      <div class="nav-eta-row">
+        <div class="nav-eta"><div class="v" id="navEta">—</div><div class="k">Time left</div></div>
+        <div class="nav-eta"><div class="v" id="navRemain">—</div><div class="k">Distance</div></div>
+        <div class="nav-eta"><div class="v st-ok" id="navSpots">—</div><div class="k">Spots held</div></div>
+      </div>
+      <div class="cta-row">
+        <button class="btn btn-ghost" id="navRepeat"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg> Repeat</button>
+        <button class="btn btn-primary" id="navArrived"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg> I'm parked</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== View: Settings ===== -->
+  <section class="view" id="view-settings">
+    <div class="settings">
+      <div class="back-row"><button class="back-btn" data-goto="drive"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back</button></div>
+
+      <div class="set-group">
+        <div class="gh">Voice & Audio</div>
+        <div class="set-row"><div class="lbl">Speak answers aloud<small>SwapSpot replies through your speaker</small></div><div class="toggle on" data-set="voiceOut"></div></div>
+        <div class="set-row"><div class="lbl">Wake word “Hey SwapSpot”<small>Continuous listening (uses more battery)</small></div><div class="toggle" data-set="wakeWord"></div></div>
+        <div class="set-row"><div class="lbl">Assistant voice</div><select class="set-sel" id="voiceSelect"></select></div>
+        <div class="set-row"><div class="lbl">Speech rate</div><div style="display:flex;align-items:center;gap:10px"><input type="range" class="set-range" id="rateRange" min="0.6" max="1.6" step="0.1" value="1"><span class="range-val" id="rateVal">1.0×</span></div></div>
+        <div class="set-row"><div class="lbl">Light theme<small>Mockup style · off = dark driving mode</small></div><div class="toggle" data-set="lightTheme"></div></div>
+      </div>
+
+      <div class="set-group">
+        <div class="gh">Parking Preferences</div>
+        <div class="set-row"><div class="lbl">Max price per hour</div><div style="display:flex;align-items:center;gap:10px"><input type="range" class="set-range" id="priceRange" min="0" max="200" step="10" value="100"><span class="range-val" id="priceVal">฿100</span></div></div>
+        <div class="set-row"><div class="lbl">Search radius</div><div style="display:flex;align-items:center;gap:10px"><input type="range" class="set-range" id="radRange" min="1" max="10" step="1" value="3"><span class="range-val" id="radVal">3 km</span></div></div>
+        <div class="set-row"><div class="lbl">Require EV charger</div><div class="toggle" data-set="needEv"></div></div>
+        <div class="set-row"><div class="lbl">Require accessible spot</div><div class="toggle" data-set="needDisabled"></div></div>
+        <div class="set-row"><div class="lbl">Covered parking only</div><div class="toggle" data-set="needCovered"></div></div>
+      </div>
+
+      <div class="hint-box">
+        <b>Voice commands you can say:</b> hands-free while driving. Tap the mic (or say the wake word) then speak naturally.
+      </div>
+      <div class="voice-cmds">
+        <div class="voice-cmd"><b>"Find parking near me"</b></div>
+        <div class="voice-cmd"><b>"Cheapest spot within 2 km"</b></div>
+        <div class="voice-cmd"><b>"Is CentralWorld full?"</b></div>
+        <div class="voice-cmd"><b>"Any free parking?"</b></div>
+        <div class="voice-cmd"><b>"EV charging with spot"</b></div>
+        <div class="voice-cmd"><b>"Take me to Siam Paragon"</b></div>
+        <div class="voice-cmd"><b>"How much per hour?"</b></div>
+        <div class="voice-cmd"><b>"Hold a spot for me"</b></div>
+        <div class="voice-cmd"><b>"Cancel navigation"</b></div>
+      </div>
+
+      <div class="hint-box" style="background:var(--surface);border-color:var(--border);color:var(--text-faint)">
+        SwapSpot demo · Live availability is simulated for 16 lots in central Bangkok. In production this connects to real parking-operator APIs and turn-by-turn navigation. Voice runs entirely in your browser via the Web Speech API.
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== View: Spot Select + Parking Session ("Your Parking") ===== -->
+  <section class="view" id="view-spots">
+    <div class="spots-view">
+      <div class="spots-head">
+        <button class="back-btn" data-goto="detail" style="padding:8px 4px;display:flex;align-items:center;gap:6px;font-size:14px;font-weight:700;color:var(--text-dim)"><svg viewBox="0 0 24 24" width="18" height="18" style="stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back</button>
+        <div class="spots-title" style="text-align:center">Your Parking<span id="spotsLotName">—</span></div>
+        <div style="width:60px"></div>
+      </div>
+      <div class="spot-legend">
+        <span><i style="background:var(--ok)"></i>Available</span>
+        <span><i style="background:var(--bad)"></i>Occupied</span>
+        <span><i style="background:var(--warn)"></i>Booked</span>
+      </div>
+      <div class="spot-grid" id="spotGrid"></div>
+
+      <div class="session-card">
+        <div class="session-row">
+          <div class="lbl"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="sessionTitle">Closing Time</span></div>
+          <button class="btn-park" id="parkToggle">Park</button>
+        </div>
+        <div class="day-tabs">
+          <button class="day-tab on" data-day="today">Today</button>
+          <button class="day-tab" data-day="tomorrow">Tomorrow</button>
+          <button class="day-tab" data-day="later">Later</button>
+        </div>
+        <div class="dial-wrap">
+          <div class="dial">
+            <svg width="200" height="200" viewBox="0 0 200 200">
+              <circle cx="100" cy="100" r="86" fill="none" stroke="var(--surface3)" stroke-width="14" stroke-dasharray="3 7"/>
+              <circle id="dialArc" cx="100" cy="100" r="86" fill="none" stroke="var(--ok)" stroke-width="14" stroke-linecap="round"
+                stroke-dasharray="540" stroke-dashoffset="135" style="transition:stroke-dashoffset .6s cubic-bezier(.22,1,.36,1),stroke .3s"/>
+            </svg>
+            <div class="dial-center">
+              <div class="t" id="dialTime">12:15</div>
+              <div class="s" id="dialState">Until close</div>
+            </div>
+          </div>
+          <div class="dial-alert"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg> Alert me 15 mins before</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== View: Live Camera AI Detection ===== -->
+  <section class="view" id="view-camera">
+    <div class="cam-view">
+      <img id="camBg" src="assets/cctv.jpg" alt="Parking camera feed">
+      <div class="cam-scan"></div>
+      <div class="cam-overlay" id="camOverlay"></div>
+      <div class="cam-hud">
+        <button class="icon-btn" data-goto="detail" style="background:rgba(0,0,0,.55);backdrop-filter:blur(6px)"><svg viewBox="0 0 24 24" style="stroke:#fff"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+          <div class="live-badge"><span class="dot"></span>LIVE · CAM 01</div>
+          <div class="cam-stats">
+            <div class="cam-stat"><div class="v" style="color:#4ADE80" id="camFree">—</div><div class="k">Free</div></div>
+            <div class="cam-stat"><div class="v" style="color:#FB7185" id="camOcc">—</div><div class="k">Occupied</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="cam-bottom">
+        <div class="cam-info">
+          <div class="nm" id="camLotName">—</div>
+          <div class="sub" id="camSub">AI vision detection · refreshing every 3s · green = free spot</div>
+        </div>
+        <button class="btn btn-primary" id="camBook" style="flex:0 0 auto;padding:15px 20px">Book free spot</button>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div id="toast"></div>
+
+<!-- Barrier loading overlay -->
+<div id="loader">
+  <div class="loader-card">
+    <img src="assets/barrier.gif" alt="Opening barrier">
+    <div class="lt" id="loaderText">Finding your spot…</div>
+    <div class="ls" id="loaderSub">Scanning nearby lots in real time</div>
+    <div class="loader-dots"><span></span><span></span><span></span></div>
+  </div>
+</div>
+
+<script src="https://fastly.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ============================================================
+   SwapSpot — Voice Parking Assistant
+   Batch 2 placeholder: data + state + voice engine + NLU
+   ============================================================ */
+/* ============================================================
+   SwapSpot — Core: data · state · utils · voice engine · NLU
+   ============================================================ */
+'use strict';
+
+/* ---------- Parking lot data (central Bangkok, demo) ---------- */
+const LOTS = [
+  {id:'sp',  name:'Siam Paragon Garage',        lat:13.7464,lng:100.5340,total:2600,price:60, daily:300, hours:'10:00–22:00', addr:'991 Rama I Rd, Pathum Wan', ev:12, disabled:28, covered:true, security:true, rating:4.6, op:'Siam Piwat'},
+  {id:'cw',  name:'CentralWorld Parking',       lat:13.7472,lng:100.5396,total:3100,price:50, daily:250, hours:'10:00–22:00', addr:'999/9 Rama I Rd, Pathum Wan', ev:8,  disabled:32, covered:true, security:true, rating:4.4, op:'Central Pattana'},
+  {id:'mbk', name:'MBK Center Parking',         lat:13.7442,lng:100.5296,total:1800,price:40, daily:200, hours:'10:00–22:00', addr:'444 Phaya Thai Rd, Wang Mai', ev:4,  disabled:18, covered:true, security:true, rating:4.1, op:'MBK Group'},
+  {id:'pf',  name:'Platinum Fashion Mall',      lat:13.7504,lng:100.5355,total:1200,price:40, daily:200, hours:'09:00–20:00', addr:'222 Phetchaburi Rd, Makkasan', ev:0,  disabled:10, covered:true, security:false,rating:3.9, op:'Platinum'},
+  {id:'ic',  name:'ICONSIAM Parking',           lat:13.7264,lng:100.5088,total:3500,price:70, daily:350, hours:'10:00–22:00', addr:'299 Charoen Nakhon Rd, Khlong San', ev:20, disabled:40, covered:true, security:true, rating:4.8, op:'Siam Piwat'},
+  {id:'eq',  name:'EmQuartier Parking',         lat:13.7308,lng:100.5680,total:2000,price:60, daily:300, hours:'10:00–22:00', addr:'693 Sukhumvit Rd, Khlong Tan', ev:10, disabled:22, covered:true, security:true, rating:4.5, op:'The Mall Group'},
+  {id:'em',  name:'Emporium Parking',           lat:13.7310,lng:100.5655,total:1400,price:60, daily:300, hours:'10:00–22:00', addr:'622 Sukhumvit Rd, Khlong Tan', ev:6,  disabled:16, covered:true, security:true, rating:4.3, op:'The Mall Group'},
+  {id:'t21', name:'Terminal 21 Asok',           lat:13.7370,lng:100.5600,total:1500,price:50, daily:250, hours:'10:00–22:00', addr:'88 Sukhumvit Rd, Khlong Toei', ev:6,  disabled:18, covered:true, security:true, rating:4.4, op:'Terminal 21'},
+  {id:'sk',  name:'Sukhumvit 11 Street Parking',lat:13.7445,lng:100.5565,total:320, price:30, daily:150, hours:'24 hours',     addr:'Sukhumvit 11, Khlong Toei Nuea', ev:0, disabled:4,  covered:false,security:false,rating:3.6, op:'City Parking'},
+  {id:'sil', name:'Silom Complex Garage',       lat:13.7270,lng:100.5270,total:900, price:50, daily:250, hours:'07:00–22:00', addr:'191 Silom Rd, Suriyawong', ev:4,  disabled:12, covered:true, security:true, rating:4.0, op:'Silom Complex'},
+  {id:'ps',  name:'Pantip Plaza Parking',       lat:13.7530,lng:100.5320,total:700, price:40, daily:200, hours:'10:00–20:30', addr:'604 Phetchaburi Rd, Makkasan', ev:2,  disabled:8,  covered:true, security:false,rating:3.8, op:'Pantip'},
+  {id:'bj',  name:'Big C Rajdamri',             lat:13.7448,lng:100.5380,total:800, price:0,  daily:0,   hours:'09:00–22:00', addr:'97/11 Rajdamri Rd, Pathum Wan', ev:0, disabled:10, covered:true, security:false,rating:4.0, op:'Big C', freeWithPurchase:true},
+  {id:'ct',  name:'Chamchuri Square Garage',    lat:13.7335,lng:100.5310,total:1100,price:45, daily:220, hours:'06:00–24:00', addr:'254 Phaya Thai Rd, Pathum Wan', ev:4, disabled:14, covered:true, security:true, rating:4.2, op:'Chula'},
+  {id:'mh',  name:'Mercure Bangkok Siam',       lat:13.7455,lng:100.5325,total:250, price:80, daily:400, hours:'24 hours',     addr:'420 Siam Square Soi 7', ev:2, disabled:6, covered:true, security:true, rating:4.1, op:'Mercure'},
+  {id:'bt',  name:'BTS Siam Park & Ride',       lat:13.7458,lng:100.5333,total:450, price:20, daily:100, hours:'05:00–24:00', addr:'Rama I Rd, Pathum Wan', ev:0, disabled:6, covered:false,security:true, rating:3.9, op:'BTS'},
+  {id:'rs',  name:'River City Bangkok',         lat:13.7315,lng:100.5110,total:600, price:50, daily:250, hours:'10:00–22:00', addr:'1 Trok Rongnamkhaeng, Yota Rd', ev:4, disabled:8, covered:true, security:true, rating:4.2, op:'River City'},
+];
+
+/* ---------- State ---------- */
+const S = {
+  user:{lat:13.7460,lng:100.5350},          // simulated user near Siam
+  view:'drive',
+  settings:loadSettings(),
+  filter:'all',
+  selectedId:null,
+  nav:null, pending:null,                                 // {lotId, steps, stepIdx, progress, startedAt, holdExpires}
+  listening:false,
+  speaking:false,
+  muted:false,
+  lastAnswer:'',
+  rec:null, recSupported:false,
+  wakeTimer:null,
+};
+function loadSettings(){
+  try{const s=JSON.parse(localStorage.getItem('swapspot_settings')); if(s) return Object.assign(defaultSettings(),s);}catch(e){}
+  return defaultSettings();
+}
+function defaultSettings(){return {voiceOut:true,wakeWord:false,voiceName:'',rate:1,maxPrice:100,radius:3,needEv:false,needDisabled:false,needCovered:false,muted:false};}function saveSettings(){try{localStorage.setItem('swapspot_settings',JSON.stringify(S.settings));}catch(e){}}
+
+/* ---------- Live availability simulation ---------- */
+LOTS.forEach(l=>{ l.avail = Math.round(l.total*(0.08+Math.random()*0.35)); l.trend=0; });
+function tickAvailability(){
+  LOTS.forEach(l=>{
+    const drift=(Math.random()-0.48)*Math.max(3,l.total*0.004);
+    l.avail=Math.max(0,Math.min(l.total,Math.round(l.avail+drift)));
+    l.trend=drift>0?1:(drift<0?-1:0);
+  });
+}
+setInterval(tickAvailability, 6000);
+setTimeout(tickAvailability, 800);
+
+/* ---------- Utils ---------- */
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+function haversine(a,b){const R=6371e3,dLat=(b.lat-a.lat)*Math.PI/180,dLng=(b.lng-a.lng)*Math.PI/180,
+  x=Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
+function distKm(lot){return haversine(S.user,lot)/1000;}
+function fmtDist(km){return km<1?Math.round(km*1000)+' m':km.toFixed(1)+' km';}
+function fmtPrice(lot){return lot.price===0?'Free':'฿'+lot.price+'/hr';}
+function occPct(l){return 1-l.avail/l.total;}
+function statusOf(lot){const p=lot.avail/lot.total; if(lot.avail===0)return'full'; if(p<0.08)return'bad'; if(p<0.2)return'warn'; return'ok';}
+function statusLabel(lot){return {ok:'Plenty available',warn:'Filling fast',bad:'Almost full',full:'Full'}[statusOf(lot)];}
+function openNow(lot){if(lot.hours==='24 hours')return true; const m=lot.hours.match(/(\d+):(\d+)–(\d+):(\d+)/); if(!m)return true;
+  const now=new Date(), mins=now.getHours()*60+now.getMinutes(); return mins>=+m[1]*60+ +m[2] && mins<=+m[3]*60+ +m[4];}
+function toast(msg,t=2600){const el=$('#toast'); el.textContent=msg; el.classList.add('show'); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),t);}
+function matchesPrefs(lot){const p=S.settings;
+  if(p.needEv && lot.ev===0)return false;
+  if(p.needDisabled && lot.disabled===0)return false;
+  if(p.needCovered && !lot.covered)return false;
+  if(lot.price>p.maxPrice)return false;
+  if(distKm(lot)>p.radius)return false;
+  return true;}
+function filteredLots(){
+  const f=S.filter;
+  return LOTS.filter(l=>{
+    if(!matchesPrefs(l))return false;
+    if(f==='open'&&!openNow(l))return false;
+    if(f==='free'&&l.price!==0)return false;
+    if(f==='ev'&&l.ev===0)return false;
+    if(f==='disabled'&&l.disabled===0)return false;
+    if(f==='covered'&&!l.covered)return false;
+    if(f==='cheap'&&l.price>40)return false;
+    return true;
+  }).sort((a,b)=>distKm(a)-distKm(b));
+}
+function nearestLot(){const a=filteredLots(); return a.length?a[0]:null;}
+
+/* ---------- Voice Output (speaker) ---------- */
+let voices=[];
+function loadVoices(){voices=speechSynthesis.getVoices().filter(v=>v.lang.startsWith('en'));
+  const sel=$('#voiceSelect'); if(!sel)return;
+  sel.innerHTML='';
+  voices.forEach(v=>{const o=document.createElement('option');o.value=v.name;o.textContent=(v.localService?'· ':'')+v.name+' ('+v.lang+')';sel.appendChild(o);});
+  if(S.settings.voiceName)sel.value=S.settings.voiceName;
+}
+if('speechSynthesis' in window){loadVoices(); speechSynthesis.onvoiceschanged=loadVoices;}
+function speak(text, opts={}){
+  S.lastAnswer=text;
+  if(S.muted||!S.settings.voiceOut||!('speechSynthesis' in window)){ setAiLine(text,'dim'); return; }
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  const v=voices.find(v=>v.name===S.settings.voiceName); if(v)u.voice=v;
+  u.rate=S.settings.rate||1; u.pitch=1.05; u.volume=0.95;
+  u.onstart=()=>{S.speaking=true; setOrbState('speaking'); $('#pillVoice').classList.add('on');
+    $('#mascotWrap').classList.add('speaking'); $('#mascotWrap').classList.remove('listening');
+    // stop mic while AI speaks so it doesn't hear itself (esp. in wake-word mode)
+    if(S.rec&&S.listening){try{S.rec.stop();}catch(e){}} };
+  u.onend=u.onerror=()=>{S.speaking=false; setOrbState(S.listening?'listening':'idle'); $('#pillVoice').classList.remove('on');
+    $('#mascotWrap').classList.remove('speaking');
+    if(S.settings.wakeWord&&!S.nav){setTimeout(()=>{if(!S.speaking)startListening();},900);} };
+  speechSynthesis.speak(u);
+  setAiLine(text,'speaking');
+}
+function stopSpeak(){if('speechSynthesis' in window)speechSynthesis.cancel(); S.speaking=false;}
+
+/* ---------- Voice Input (mic) ---------- */
+const SR = window.SpeechRecognition||window.webkitSpeechRecognition;
+S.recSupported=!!SR;
+if(!S.recSupported){$('#micWarn').classList.add('show');}
+function initRec(){
+  if(!SR)return null;
+  const r=new SR(); r.lang='en-US'; r.continuous=false; r.interimResults=true; r.maxAlternatives=1;
+  let finalText='';
+  r.onstart=()=>{S.listening=true; setOrbState('listening'); $('#pillMic').classList.add('on'); $('#orbHint').textContent='Listening…'; $('#mascotWrap').classList.add('listening'); $('#mascotWrap').classList.remove('speaking'); startWave();};
+  r.onresult=e=>{
+    let interim=''; finalText='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const t=e.results[i][0].transcript;
+      if(e.results[i].isFinal)finalText+=t; else interim+=t;
+    }
+    setTranscript(finalText, interim);
+    if(S.settings.wakeWord && !finalText){/* keep going */}
+  };
+  r.onerror=e=>{ console.warn('rec err',e.error); stopListeningUI(); if(e.error==='not-allowed')toast('Microphone blocked — allow mic access in browser settings.'); };
+  r.onend=()=>{
+    stopListeningUI();
+    const txt=(finalText||'').trim();
+    if(txt){ setTranscript(txt,''); handleUserQuery(txt); }
+    else if(S.settings.wakeWord && !S.nav){ setTimeout(()=>{try{r.start();}catch(e){}},400); } // continuous wake-word loop
+  };
+  return r;
+}
+function startListening(){
+  if(!SR){ // fallback: text prompt
+    const t=prompt('Type your request (voice not supported):'); if(t){setTranscript(t,'');handleUserQuery(t);} return;
+  }
+  stopSpeak();
+  if(!S.rec)S.rec=initRec();
+  try{S.rec.start();}catch(e){ try{S.rec.stop(); setTimeout(()=>{try{S.rec.start();}catch(_){}},200);}catch(_){} }
+}
+function stopListening(){ if(S.rec){try{S.rec.stop();}catch(e){}} stopListeningUI(); }
+function stopListeningUI(){S.listening=false; setOrbState('idle'); $('#pillMic').classList.remove('on'); $('#orbHint').textContent='Tap to talk'; $('#mascotWrap').classList.remove('listening'); stopWave();}
+function setOrbState(st){const w=$('#orb'); w.classList.remove('listening','speaking'); if(st!=='idle')w.classList.add(st);
+  const icon=$('#orbIcon'); if(st==='speaking'){icon.innerHTML='<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>';}
+  else{icon.innerHTML='<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3"/>';}
+}
+function setTranscript(final,interim){const el=$('#transcript'); el.innerHTML=(final?'"'+final+'"':'')+(interim?'<span class="interim"> '+interim+'</span>':'');}
+function setAiLine(html,cls){const el=$('#aiLine'); el.className='ai-line'+(cls?' '+cls:''); el.innerHTML=html;}
+
+/* ---------- Waveform animation (listening) ---------- */
+let waveRaf=null, waveCtx=null, waveT=0;
+function startWave(){const c=$('#waveform'); if(!c)return; waveCtx=c.getContext('2d'); waveT=0;
+  if(waveRaf)cancelAnimationFrame(waveRaf); const draw=()=>{waveT+=0.08; drawWave(); waveRaf=requestAnimationFrame(draw);}; draw();}
+function stopWave(){if(waveRaf)cancelAnimationFrame(waveRaf); waveRaf=null; if(waveCtx){waveCtx.clearRect(0,0,300,300);}}
+function drawWave(){const c=$('#waveform'),ctx=waveCtx; if(!ctx)return; ctx.clearRect(0,0,300,300);
+  const cx=150,cy=150,base=78; ctx.strokeStyle='rgba(34,211,238,.55)'; ctx.lineWidth=2.5; ctx.lineCap='round';
+  for(let ring=0;ring<3;ring++){const r=base+ring*16+Math.sin(waveT+ring)*4; ctx.beginPath();
+    for(let a=0;a<=Math.PI*2;a+=0.12){const rr=r+Math.sin(a*5+waveT*2+ring*1.5)*6*Math.abs(Math.sin(waveT+ring));
+      const x=cx+Math.cos(a)*rr, y=cy+Math.sin(a)*rr; a===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}
+    ctx.globalAlpha=0.5-ring*0.13; ctx.stroke();}
+  ctx.globalAlpha=1;
+}
+
+/* ---------- NLU: intent + entity extraction ---------- */
+function findLotByName(q){
+  const ql=q.toLowerCase();
+  let best=null,bestScore=0;
+  for(const l of LOTS){
+    const name=l.name.toLowerCase();
+    let score=0;
+    // token match
+    l.name.toLowerCase().split(/[\s,]+/).filter(t=>t.length>3).forEach(t=>{ if(ql.includes(t))score+=t.length; });
+    // acronym / short code (word-boundary so "spot" does not match lot "sp")
+    const short=l.id; if(short.length>=2 && new RegExp('\\b'+short+'\\b','i').test(ql))score+=6;
+    // common aliases
+    const aliases={sp:['siam paragon','paragon'],cw:['central world','centralworld','central'],mbk:['mbk'],ic:['iconsiam','icon siam'],
+      eq:['emquartier','em quartier'],em:['emporium'],t21:['terminal 21','terminal21','asok','asoke'],sil:['silom'],
+      ps:['pantip'],bj:['big c','bigc'],ct:['chamchuri','chula'],bt:['bts siam','park and ride','park & ride'],rs:['river city']};
+    (aliases[l.id]||[]).forEach(a=>{if(ql.includes(a))score+=a.length*2;});
+    if(score>bestScore){bestScore=score;best=l;}
+  }
+  return bestScore>=4?best:null;
+}
+function extractNum(q, unitRe){const m=q.match(new RegExp('(\\d+(?:\\.\\d+)?)\\s*'+unitRe,'i')); return m?parseFloat(m[1]):null;}
+function parseQuery(q){
+  const ql=q.toLowerCase();
+  const intent={raw:q, lot:findLotByName(ql), ev:false, disabled:false, covered:false, free:false, cheapest:false,
+    nearest:false, navigate:false, reserve:false, cancel:false, repeat:false, help:false, greeting:false,
+    priceQuery:false, availQuery:false, maxDist:null, maxPrice:null, yes:false, no:false, atLocation:false};
+  if(/\b(hi|hello|hey|good (morning|afternoon|evening))\b/.test(ql))intent.greeting=true;
+  if(/\b(yes|yeah|yep|yup|sure|okay|ok|go ahead|take me|lead the way|let'?s go|lets go|chai|ไป|ใช่)\b/.test(ql))intent.yes=true;
+  if(/\b(no|nope|don'?t|do not|not now|maybe later|cancel|stop|mai|ไม่)\b/.test(ql))intent.no=true;
+  if(intent.lot && /(i'?m|i am|im|currently|am at|อยู่|from my)/.test(ql) && !intent.navigate)intent.atLocation=true;
+  if(/\b(help|what can you do|commands?)\b/.test(ql))intent.help=true;
+  if(/\b(repeat|say that again|come again)\b/.test(ql))intent.repeat=true;
+  if(/\b(cancel|stop (navigation|it)|end navigation)\b/.test(ql))intent.cancel=true;
+  if(/\b(navigate|take me|directions?|guide me|drive me|head to|go to|route to)\b/.test(ql))intent.navigate=true;
+  if(/\b(reserve|book|hold|save (me )?a spot|spot for me)\b/.test(ql))intent.reserve=true;
+  if(/\b(cheapest|best price|best value|least expensive|how much|price|cost|rate)\b/.test(ql)){intent.cheapest=/cheapest|best price|best value|least expensive/.test(ql); intent.priceQuery=/how much|price|cost|rate/.test(ql);}
+  if(/\b(free|no charge|complimentary)\b/.test(ql))intent.free=true;
+  if(/\b(ev|electric|charge|charger|charging)\b/.test(ql))intent.ev=true;
+  if(/\b(disabled|handicap|wheelchair|accessible|accessibility)\b/.test(ql))intent.disabled=true;
+  if(/\b(covered|indoor|roof|shade)\b/.test(ql))intent.covered=true;
+  if(/\b(nearest|closest|near me|nearby|around me|any (free )?spot|find (a |parking)|where (can|to) park|parking)\b/.test(ql))intent.nearest=true;
+  if(/\b(available|spot|space|empty|full|occupancy|how many|open)\b/.test(ql)&&!intent.navigate)intent.availQuery=true;
+  const d=extractNum(ql,'(km|kilometers?|k)\\b'); if(d)intent.maxDist=d;
+  const d2=extractNum(ql,'(m|meters?|metres?)\\b'); if(d2)intent.maxDist=d2/1000;
+  const p=extractNum(ql,'(baht|bht|฿|thb)\\b'); if(p)intent.maxPrice=p;
+  return intent;
+}
+
+/* ---------- AI Responder ---------- */
+function respond(intent){
+  const ql=intent.raw.toLowerCase();
+  if(intent.repeat){ if(S.lastAnswer)speak(S.lastAnswer); else speak('There is nothing to repeat yet.'); return; }
+  if(intent.cancel){ if(S.nav){cancelNav(); speak('Navigation cancelled.');} else speak('Nothing to cancel right now.'); return; }
+  if(intent.help){ speak('You can ask me to find parking, compare prices, check availability, find EV or accessible spots, or navigate and hold a spot. Just tap the mic and ask.'); return; }
+  if(intent.greeting && !intent.nearest && !intent.navigate && !intent.lot){ speak('Hello! I am SwapSpot. Ask me to find parking, check availability, or navigate to a lot.'); return; }
+  let prefix='';
+  if(intent.atLocation && intent.lot){
+    const l=intent.lot; S.user={lat:l.lat+0.0022,lng:l.lng+0.0015};
+    if(userMarker)userMarker.setLatLng([S.user.lat,S.user.lng]);
+    prefix='Got it — you are near '+l.name+'. ';
+  }
+
+  // build candidate list from intent filters
+  let cands=LOTS.filter(l=>{
+    if(intent.ev && l.ev===0)return false;
+    if(intent.disabled && l.disabled===0)return false;
+    if(intent.covered && !l.covered)return false;
+    if(intent.free && l.price!==0)return false;
+    if(intent.maxDist && distKm(l)>intent.maxDist)return false;
+    if(intent.maxPrice && l.price>intent.maxPrice)return false;
+    const effRadius = intent.maxDist!=null ? intent.maxDist : S.settings.radius;
+    if(distKm(l)>effRadius)return false;
+    return true;
+  });
+  if(intent.cheapest)cands.sort((a,b)=>a.price-b.price||distKm(a)-distKm(b));
+  else cands.sort((a,b)=>distKm(a)-distKm(b));
+  const open=cands.filter(l=>openNow(l));
+  if(open.length)cands=open;
+
+  // specific lot query
+  // specific lot query (status/price), not a general "find parking near X" request
+  if(intent.lot && !intent.navigate && !intent.nearest){
+    const l=intent.lot;
+    if(intent.priceQuery){ speak(l.name+' charges '+fmtPrice(l)+(l.daily?', or ฿'+l.daily+' daily max.':'.')+(l.freeWithPurchase?' Free with purchase.':'')); return; }
+    const st=statusOf(l);
+    if(st==='full'){speak(l.name+' is currently full. '+(cands[0]&&cands[0].id!==l.id?cands[0].name+' has '+cands[0].avail+' spots, '+fmtDist(distKm(cands[0]))+' away.':'No nearby alternative right now.')); return;}
+    speak(l.name+' has '+l.avail+' of '+l.total+' spots open — '+statusLabel(l).toLowerCase()+'. '+fmtPrice(l)+', '+fmtDist(distKm(l))+' away. Say navigate to go there.');
+    return;
+  }
+
+  // navigation
+  if(intent.navigate){
+    const target=intent.lot || cands.find(l=>l.avail>0) || cands[0];
+    if(!target){speak('I could not find a matching parking lot. Try asking for nearest parking.'); return;}
+    if(target.avail===0){speak(target.name+' is full. '); const alt=cands.find(l=>l.avail>0); if(alt){speak('I will take you to '+alt.name+' instead, with '+alt.avail+' spots.'); startNav(alt);} return;}
+    speak('Taking you to '+target.name+'. '+target.avail+' spots available, '+fmtDist(distKm(target))+' away, '+fmtPrice(target)+'. I will hold a spot for 10 minutes.');
+    startNav(target); return;
+  }
+
+  // reserve / hold
+  if(intent.reserve){
+    const target=intent.lot || cands.find(l=>l.avail>0);
+    if(!target){speak('No available lot to hold a spot at right now.'); return;}
+    holdSpot(target); speak('Holding a spot at '+target.name+' for 10 minutes. '+target.avail+' spots open.'); return;
+  }
+
+  // general find / nearest / cheapest / feature query — conversational offer
+  const avail=cands.filter(l=>l.avail>0);
+  if(!avail.length){speak((prefix||'')+'No matching parking found within your settings. Try widening the search radius in settings.'); return;}
+  const best=avail[0];
+  const alt=avail.slice(1,3).map(l=>l.name).join(' · ');
+  let speech=prefix+best.name+' is your best match: '+best.avail+' spots open, '+fmtPrice(best)+', '+fmtDist(distKm(best))+' away.';
+  if(alt)speech+=' Also: '+alt+'.';
+  speech+=' Should I navigate you there? Say yes or no.';
+  S.pending={type:'navigate', lotId:best.id};
+  speak(speech);
+  goto('map'); selectLotOnMap(best); renderLotsList();
+}
+function handleUserQuery(q){
+  const it=parseQuery(q);
+  // conversational: answer a pending yes/no question from the AI first
+  if(S.pending){
+    if(it.yes && !it.no && !it.navigate){ const p=S.pending; S.pending=null;
+      if(p.type==='navigate'){const l=LOTS.find(x=>x.id===p.lotId); if(l){speak('Great, taking you to '+l.name+'.'); startNav(l);} return;} }
+    if(it.no && !it.yes){ S.pending=null; speak('Okay, no navigation. Just ask when you are ready.'); return; }
+    S.pending=null; // user changed the subject — drop pending offer
+  }
+  const meta = it.repeat||it.cancel||it.help||it.greeting;
+  if(meta){respond(it);return;}
+  const txt = it.navigate?'Opening route & lifting barrier…':(it.ev?'Scanning lots with EV chargers…':(it.free?'Checking for free parking…':'Scanning nearby lots in real time'));
+  showLoader('Finding your spot…', txt);
+  setTimeout(()=>{respond(it); hideLoader();}, 1800);
+}
+function showLoader(t,s){$('#loaderText').textContent=t||'Finding your spot…'; if(s)$('#loaderSub').textContent=s; $('#loader').classList.add('show');}
+function hideLoader(){$('#loader').classList.remove('show');}
+function holdSpot(lot){ if(!S.nav){S.selectedId=lot.id;} toast('Spot held at '+lot.name+' for 10 min'); }
+</script>
+<script>
+/* ============================================================
+   SwapSpot — App layer: routing · map · list · detail · nav · UI
+   ============================================================ */
+
+/* ---------- Routing ---------- */
+function goto(v){
+  S.view=v;
+  $$('.view').forEach(el=>el.classList.toggle('active', el.id==='view-'+v));
+  location.hash=v;
+  if(v==='map'){initMap(); setTimeout(()=>{if(map)map.invalidateSize();},80); renderLotsList(); fitToLots();}
+  if(v==='spots'&&S.selectedId)renderSpots(S.selectedId);
+  if(v==='camera'&&S.selectedId)openCamera(S.selectedId);
+  if(v!=='camera'&&camRefresh){clearInterval(camRefresh);camRefresh=null;}
+  if(v==='nav'&&S.nav){setTimeout(()=>{if(miniMap)miniMap.invalidateSize();},80);}
+  if(v==='drive')updateNearestCard();
+}
+window.addEventListener('hashchange',()=>{const h=location.hash.replace('#',''); if(h&&h!==S.view)goto(h);});
+
+/* ---------- Leaflet Map ---------- */
+let map=null, userMarker=null, navMarker=null, routeLine=null, lotMarkers={};
+function initMap(){
+  if(map)return;
+  map=L.map('map',{zoomControl:true, attributionControl:true, zoomControl:false}).setView([S.user.lat,S.user.lng],14);
+  L.control.zoom({position:'topright'}).addTo(map);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'&copy; OpenStreetMap contributors', subdomains:'abc', maxZoom:19
+  }).addTo(map);
+  userMarker=L.marker([S.user.lat,S.user.lng],{icon:L.divIcon({className:'',html:'<div class="user-marker"></div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);
+  renderLotMarkers();
+  setInterval(()=>{renderLotMarkers(); if(S.view==='map')renderLotsList(); if(S.view==='drive')updateNearestCard();},7000);
+}
+function markerIcon(lot){
+  const st=statusOf(lot); const cls={ok:'mk-ok',warn:'mk-warn',bad:'mk-bad',full:'mk-full'}[st];
+  const label=lot.avail>99?'99+':lot.avail;
+  return L.divIcon({className:'',html:`<div class="lot-marker ${cls}"><span>${label}</span></div>`,iconSize:[38,38],iconAnchor:[19,34]});
+}
+function renderLotMarkers(){
+  if(!map)return;
+  LOTS.forEach(l=>{
+    const st=statusOf(l);
+    if(lotMarkers[l.id]){ lotMarkers[l.id].setIcon(markerIcon(l)); }
+    else{
+      const m=L.marker([l.lat,l.lng],{icon:markerIcon(l)}).addTo(map);
+      m.bindTooltip(l.name+' · '+l.avail+' free · '+fmtPrice(l),{direction:'top',className:'lot-tip',offset:[0,-30]});
+      m.on('click',()=>selectLotOnMap(l));
+      lotMarkers[l.id]=m;
+    }
+  });
+}
+function fitToLots(){if(!map)return; const pts=[[S.user.lat,S.user.lng],...filteredLots().slice(0,8).map(l=>[l.lat,l.lng])]; if(pts.length>1)map.fitBounds(pts,{padding:[40,40]});}
+
+/* ---------- Lots list (map bottom sheet) ---------- */
+function renderLotsList(){
+  const list=filteredLots();
+  $('#lotCount').textContent=list.length+' lots';
+  const el=$('#lotsList');
+  el.innerHTML=list.map(l=>{
+    const st=statusOf(l), cls={ok:'st-ok',warn:'st-warn',bad:'st-bad',full:'st-bad'}[st];
+    const feats=[
+      l.ev>0?`<span class="feat-dot" style="color:var(--ai)"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>EV</span>`:'',
+      l.disabled>0?`<span class="feat-dot"><svg viewBox="0 0 24 24"><circle cx="12" cy="4" r="2"/><path d="M12 6v6l5 3M8 10h8M12 12v5"/></svg>♿</span>`:'',
+      l.covered?`<span class="feat-dot"><svg viewBox="0 0 24 24"><path d="M3 9l9-6 9 6v2H3zM5 11v9h14v-9"/></svg>Covered</span>`:'',
+    ].join('');
+    return `<div class="lot-row ${S.selectedId===l.id?'sel':''}" data-id="${l.id}">
+      <div class="avail-badge"><div class="n ${cls}">${l.avail>99?'99+':l.avail}</div><div class="l">free</div></div>
+      <div class="info"><div class="nm">${l.name}</div><div class="dt"><span>${fmtDist(distKm(l))}</span><span>${openNow(l)?'Open now':'Closed'}</span>${feats}</div></div>
+      <div class="price">${l.price===0?'FREE':'฿'+l.price}<small>/hr</small></div>
+    </div>`;
+  }).join('') || '<div style="text-align:center;color:var(--text-faint);padding:24px;font-size:13px">No lots match your filters. Adjust settings or radius.</div>';
+  el.querySelectorAll('.lot-row').forEach(r=>r.addEventListener('click',()=>selectLotOnMap(LOTS.find(x=>x.id===r.dataset.id))));
+}
+
+/* ---------- Lot Detail ---------- */
+function renderDetail(id){
+  const l=LOTS.find(x=>x.id===id); if(!l)return;
+  const st=statusOf(l), cls={ok:'st-ok',warn:'st-warn',bad:'st-bad',full:'st-bad'}[st];
+  const pct=Math.round((1-l.avail/l.total)*100);
+  const barColor={ok:'var(--ok)',warn:'var(--warn)',bad:'var(--bad)',full:'var(--bad)'}[st];
+  const body=$('#detailBody');
+  body.innerHTML=`
+    <div class="back-row"><button class="back-btn" data-goto="map"><svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back to map</button></div>
+    <div class="detail-hero">
+      <h2>${l.name}</h2>
+      <div class="addr"><svg viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>${l.addr}</div>
+      <div class="occ-stats">
+        <div class="occ-stat"><div class="v ${cls}">${l.avail}</div><div class="k">Free spots</div></div>
+        <div class="occ-stat"><div class="v">${l.total}</div><div class="k">Total</div></div>
+        <div class="occ-stat"><div class="v ${cls}">${statusLabel(l)}</div><div class="k">Status</div></div>
+      </div>
+      <div class="occ-bar"><div style="width:${pct}%;background:${barColor}"></div></div>
+      <div class="occ-bar-labels"><span>Empty</span><span>${pct}% occupied</span><span>Full</span></div>
+    </div>
+    <div class="grid-2">
+      <div class="info-card"><div class="k">Hourly rate</div><div class="v">${l.price===0?'Free <small>with purchase</small>':'฿'+l.price+' <small>/ hour</small>'}</div></div>
+      <div class="info-card"><div class="k">Daily max</div><div class="v">${l.daily?'฿'+l.daily:'—'}</div></div>
+      <div class="info-card"><div class="k">Open hours</div><div class="v" style="font-size:14px">${l.hours}</div></div>
+      <div class="info-card"><div class="k">Distance</div><div class="v">${fmtDist(distKm(l))} <small>· ${Math.round(distKm(l)*3.2)} min</small></div></div>
+      <div class="info-card"><div class="k">Operator</div><div class="v" style="font-size:14px">${l.op}</div></div>
+      <div class="info-card"><div class="k">Rating</div><div class="v">★ ${l.rating} <small>/ 5</small></div></div>
+    </div>
+    <div class="info-card">
+      <div class="k" style="margin-bottom:10px">Features</div>
+      <div class="feats">
+        <span class="feat ${l.ev>0?'':'off'}"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>EV charging · ${l.ev} stalls</span>
+        <span class="feat ${l.disabled>0?'':'off'}"><svg viewBox="0 0 24 24"><circle cx="12" cy="4" r="2"/><path d="M12 6v6l5 3M8 10h8"/></svg>Accessible · ${l.disabled}</span>
+        <span class="feat ${l.covered?'':'off'}"><svg viewBox="0 0 24 24"><path d="M3 9l9-6 9 6v2H3z"/></svg>Covered</span>
+        <span class="feat ${l.security?'':'off'}"><svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6z"/></svg>24h security</span>
+      </div>
+    </div>
+    <div class="cta-row">
+      <button class="btn btn-ghost" id="detailCam" style="flex:0 0 auto;padding:17px 15px" title="Live camera"><svg viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></button>
+      <button class="btn btn-ai" id="detailSpots"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> Choose spot</button>
+      <button class="btn btn-primary" id="detailNav"><svg viewBox="0 0 24 24"><path d="M3 11l19-8-8 19-2-8z"/></svg> Navigate</button>
+    </div>`;
+  body.querySelectorAll('[data-goto]').forEach(b=>b.addEventListener('click',()=>goto(b.dataset.goto)));
+  $('#detailNav').addEventListener('click',()=>{speak('Navigating to '+l.name+'.'); startNav(l);});
+  $('#detailSpots').addEventListener('click',()=>{S.selectedId=l.id; goto('spots');});
+  $('#detailCam').addEventListener('click',()=>{S.selectedId=l.id; goto('camera');});
+}
+
+/* ---------- Navigation engine (simulated turn-by-turn) ---------- */
+let miniMap=null, miniUser=null, miniRoute=null, miniDest=null, navTimer=null;
+const STREETS=['Rama I Rd','Phaya Thai Rd','Phetchaburi Rd','Sukhumvit Rd','Lang Suan Rd','Henri Dunant Rd','Siam Square Soi 2','Rajdamri Rd','Nimman Lane','Charoen Nakhon approach'];
+const MANEUVERS=[
+  {t:'Continue straight',svg:'<path d="M12 19V5M5 12l7-7 7 7"/>'},
+  {t:'Turn left',svg:'<path d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 5 5v5"/>'},
+  {t:'Turn right',svg:'<path d="m15 14 5-5-5-5M20 9H9a5 5 0 0 0-5 5v5"/>'},
+  {t:'Slight right',svg:'<path d="M12 19V9a5 5 0 0 1 5-5M12 19l-4-4M12 19l4-4"/>'},
+  {t:'Slight left',svg:'<path d="M12 19V9a5 5 0 0 0-5-5M12 19l-4-4M12 19l4-4"/>'},
+];
+function buildSteps(lot){
+  const n=5+Math.floor(Math.random()*3);
+  const steps=[];
+  for(let i=0;i<=n;i++){
+    const f=i/n;
+    const lat=S.user.lat+(lot.lat-S.user.lat)*f + (i>0&&i<n?(Math.random()-0.5)*0.004:0);
+    const lng=S.user.lng+(lot.lng-S.user.lng)*f + (i>0&&i<n?(Math.random()-0.5)*0.004:0);
+    const dist=i===0?0:Math.round(150+Math.random()*500);
+    const man=i===n?{t:'Arrive at '+lot.name,svg:'<path d="M20 6 9 17l-5-5"/>'}:MANEUVERS[Math.floor(Math.random()*MANEUVERS.length)];
+    steps.push({lat,lng,dist,street:STREETS[Math.floor(Math.random()*STREETS.length)],man});
+  }
+  steps[0].dist=0;
+  return steps;
+}
+function startNav(lot){
+  cancelNav(false);
+  S.pending=null;
+  const steps=buildSteps(lot);
+  const totalM=steps.reduce((a,s)=>a+s.dist,0);
+  S.nav={lot,steps,idx:1,distToNext:steps[1].dist,totalM,traveled:0,startedAt:Date.now(),holdUntil:Date.now()+10*60000};
+  goto('nav');
+  $('#navDest').textContent='→ '+lot.name;
+  $('#navSpots').textContent=lot.avail;
+  initMiniMap(lot,steps);
+  speak('Starting navigation. In '+steps[1].dist+' meters, '+steps[1].man.t.toLowerCase()+' onto '+steps[1].street+'.');
+  updateNavUI();
+  navTimer=setInterval(navTick,1200);
+}
+function navTick(){
+  const n=S.nav; if(!n)return;
+  const speed=11; // m per tick (~33 km/h simulated)
+  n.distToNext-=speed; n.traveled+=speed;
+  if(n.distToNext<=0){
+    n.idx++;
+    if(n.idx>=n.steps.length){arriveNav(); return;}
+    n.distToNext=n.steps[n.idx].dist;
+    const s=n.steps[n.idx];
+    speak(s.man.t+(s.man.t.startsWith('Arrive')?'':' onto '+s.street)+'.');
+    $('#navArrowSvg').innerHTML=s.man.svg;
+  }
+  // move user marker along route
+  const a=n.steps[n.idx-1], b=n.steps[n.idx];
+  const f=1-Math.max(0,n.distToNext)/Math.max(1,b.dist);
+  const lat=a.lat+(b.lat-a.lat)*f, lng=a.lng+(b.lng-a.lng)*f;
+  S.user={lat,lng};
+  if(userMarker)userMarker.setLatLng([lat,lng]);
+  if(miniUser)miniUser.setLatLng([lat,lng]);
+  updateNavUI();
+}
+function updateNavUI(){
+  const n=S.nav; if(!n)return;
+  $('#navDist').innerHTML=Math.max(0,Math.round(n.distToNext))+'<small>m</small>';
+  const s=n.steps[n.idx]; if(s){$('#navStreet').textContent=s.man.t+(s.man.t.startsWith('Arrive')?'':' onto '+s.street); $('#navArrowSvg').innerHTML=s.man.svg;}
+  const remainM=Math.max(0,n.totalM-n.traveled);
+  $('#navRemain').textContent=remainM<1000?Math.round(remainM)+' m':(remainM/1000).toFixed(1)+' km';
+  const etaMin=Math.max(1,Math.round(remainM/ (33000/60) ));
+  $('#navEta').textContent=etaMin+' min';
+  $('#navProgressBar').style.width=Math.min(100,(n.traveled/n.totalM)*100)+'%';
+  // hold countdown
+  const holdLeft=Math.max(0,Math.round((n.holdUntil-Date.now())/60000));
+  $('#navSpots').textContent=n.lot.avail+(holdLeft>0?' · '+holdLeft+'m hold':'');
+}
+function arriveNav(){
+  const n=S.nav; if(!n)return;
+  clearInterval(navTimer); navTimer=null;
+  speak('You have arrived at '+n.lot.name+'. '+n.lot.avail+' spots available. Welcome, and park safely!');
+  $('#navStreet').textContent='Arrived — park safely';
+  $('#navArrowSvg').innerHTML='<path d="M20 6 9 17l-5-5"/>';
+  $('#navDist').innerHTML='0<small>m</small>';
+  $('#navProgressBar').style.width='100%';
+  S.nav=null;
+}
+function cancelNav(announce=true){
+  if(navTimer){clearInterval(navTimer); navTimer=null;}
+  if(S.nav&&announce){/*speech handled by caller*/}
+  S.nav=null;
+}
+function initMiniMap(lot,steps){
+  if(!miniMap){
+    miniMap=L.map('miniMap',{zoomControl:false,attributionControl:false,zoomSnap:0.5}).setView([lot.lat,lot.lng],14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{subdomains:'abc',maxZoom:19}).addTo(miniMap);
+  }
+  setTimeout(()=>miniMap.invalidateSize(),100);
+  const pts=steps.map(s=>[s.lat,s.lng]);
+  if(miniRoute)miniRoute.remove();
+  miniRoute=L.polyline(pts,{color:'#22D3EE',weight:4,opacity:.9,dashArray:'1 8'}).addTo(miniMap);
+  if(miniDest)miniDest.remove();
+  miniDest=L.circleMarker([lot.lat,lot.lng],{radius:7,color:'#FF7A1A',fillColor:'#FF7A1A',fillOpacity:.9}).addTo(miniMap);
+  if(miniUser)miniUser.remove();
+  miniUser=L.marker([S.user.lat,S.user.lng],{icon:L.divIcon({className:'',html:'<div class="user-marker"></div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(miniMap);
+  miniMap.fitBounds(pts,{padding:[14,14]});
+}
+
+/* ---------- Select lot on map: route preview + action bar ---------- */
+let routePreview=null;
+function selectLotOnMap(lot){
+  if(!lot)return;
+  S.selectedId=lot.id;
+  $('#maName').textContent=lot.name;
+  $('#maSub').textContent=lot.avail+' free · '+fmtPrice(lot)+' · '+fmtDist(distKm(lot))+' · '+statusLabel(lot);
+  $('#mapAction').classList.add('show');
+  if(routePreview)routePreview.remove();
+  if(map){
+    routePreview=L.polyline([[S.user.lat,S.user.lng],[lot.lat,lot.lng]],{color:'#22D3EE',weight:4,opacity:.85,dashArray:'1 10'}).addTo(map);
+    map.fitBounds([[S.user.lat,S.user.lng],[lot.lat,lot.lng]],{padding:[70,70]});
+  }
+  $$('#lotsList .lot-row').forEach(r=>r.classList.toggle('sel', r.dataset.id===lot.id));
+}
+$('#maNav').addEventListener('click',()=>{const l=LOTS.find(x=>x.id===S.selectedId); if(l){speak('Navigating to '+l.name+'.'); startNav(l);}});
+$('#maSpot').addEventListener('click',()=>{if(S.selectedId)goto('spots');});
+$('#maCam').addEventListener('click',()=>{if(S.selectedId)goto('camera');});
+$('#maDetail').addEventListener('click',()=>{if(S.selectedId){renderDetail(S.selectedId); goto('detail');}});
+
+/* ---------- Drive view: nearest card ---------- */
+function updateNearestCard(){
+  const l=nearestLot();
+  if(!l){$('#nearestAvail').innerHTML='—<small> free</small>'; $('#nearestName').textContent='No parking in range'; $('#nearestSub').textContent='Widen search radius in settings'; return;}
+  const st=statusOf(l), cls={ok:'st-ok',warn:'st-warn',bad:'st-bad',full:'st-bad'}[st];
+  $('#nearestAvail').className='avail '+cls;
+  $('#nearestAvail').innerHTML=l.avail+'<small> free</small>';
+  $('#nearestName').textContent=l.name;
+  $('#nearestSub').textContent=fmtDist(distKm(l))+' · '+fmtPrice(l)+' · '+statusLabel(l);
+}
+
+/* ---------- Settings wiring ---------- */
+function applySettingsUI(){
+  $$('.toggle[data-set]').forEach(t=>{t.classList.toggle('on', !!S.settings[t.dataset.set]);});
+  document.body.classList.toggle('light', !!S.settings.lightTheme);
+  $('#rateRange').value=S.settings.rate; $('#rateVal').textContent=S.settings.rate.toFixed(1)+'×';
+  $('#priceRange').value=S.settings.maxPrice; $('#priceVal').textContent='฿'+S.settings.maxPrice;
+  $('#radRange').value=S.settings.radius; $('#radVal').textContent=S.settings.radius+' km';
+  if(S.settings.muted){$('#muteBtn').classList.add('active'); S.muted=true;}
+}
+$$('.toggle[data-set]').forEach(t=>t.addEventListener('click',()=>{
+  const k=t.dataset.set; S.settings[k]=!S.settings[k]; t.classList.toggle('on',S.settings[k]); saveSettings();
+  if(k==='wakeWord'&&S.settings[k]){toast('Wake word on — SwapSpot now listens continuously'); if(!S.listening)startListening();}
+  if(k==='lightTheme'){document.body.classList.toggle('light',S.settings[k]); toast(S.settings[k]?'Light theme on':'Dark driving mode on');}
+  updateNearestCard();
+}));
+$('#rateRange').addEventListener('input',e=>{S.settings.rate=+e.target.value; $('#rateVal').textContent=S.settings.rate.toFixed(1)+'×'; saveSettings();});
+$('#priceRange').addEventListener('input',e=>{S.settings.maxPrice=+e.target.value; $('#priceVal').textContent='฿'+S.settings.maxPrice; saveSettings(); updateNearestCard();});
+$('#radRange').addEventListener('input',e=>{S.settings.radius=+e.target.value; $('#radVal').textContent=S.settings.radius+' km'; saveSettings(); updateNearestCard();});
+$('#voiceSelect').addEventListener('change',e=>{S.settings.voiceName=e.target.value; saveSettings(); speak('This is how I will sound.');});
+$('#muteBtn').addEventListener('click',()=>{
+  S.muted=!S.muted; S.settings.muted=S.muted; saveSettings();
+  $('#muteBtn').classList.toggle('active',S.muted);
+  if(S.muted){stopSpeak(); toast('Voice muted');} else toast('Voice on');
+});
+$('#settingsBtn').addEventListener('click',()=>goto('settings'));
+
+/* ---------- Event wiring ---------- */
+document.addEventListener('click',e=>{const b=e.target.closest('[data-goto]'); if(b){goto(b.dataset.goto);}});
+$('#orb').addEventListener('click',()=>{ if(S.listening)stopListening(); else startListening(); });
+$$('.chip').forEach(c=>c.addEventListener('click',()=>{ setTranscript(c.dataset.cmd,''); handleUserQuery(c.dataset.cmd); }));
+$('#nearestCard').addEventListener('click',()=>{const l=nearestLot(); if(l){S.selectedId=l.id; renderDetail(l.id); goto('detail');}});
+$('#filterRow').addEventListener('click',e=>{const b=e.target.closest('.filter-chip'); if(!b)return;
+  $$('#filterRow .filter-chip').forEach(x=>x.classList.remove('on')); b.classList.add('on'); S.filter=b.dataset.f; renderLotsList();});
+$('#mapSearch').addEventListener('input',e=>{
+  const q=e.target.value.trim().toLowerCase(); if(!q){S.filter='all';renderLotsList();return;}
+  const list=LOTS.filter(l=>l.name.toLowerCase().includes(q)||l.addr.toLowerCase().includes(q)).sort((a,b)=>distKm(a)-distKm(b));
+  $('#lotCount').textContent=list.length+' results';
+  $('#lotsList').innerHTML=list.map(lotRowHTML).join('')||'<div style="text-align:center;color:var(--text-faint);padding:24px;font-size:13px">No matches.</div>';
+  $('#lotsList').querySelectorAll('.lot-row').forEach(r=>r.addEventListener('click',()=>selectLotOnMap(LOTS.find(x=>x.id===r.dataset.id))));
+});
+function lotRowHTML(l){const st=statusOf(l), cls={ok:'st-ok',warn:'st-warn',bad:'st-bad',full:'st-bad'}[st];
+  return `<div class="lot-row" data-id="${l.id}"><div class="avail-badge"><div class="n ${cls}">${l.avail>99?'99+':l.avail}</div><div class="l">free</div></div>
+  <div class="info"><div class="nm">${l.name}</div><div class="dt"><span>${fmtDist(distKm(l))}</span><span>${fmtPrice(l)}</span></div></div>
+  <div class="price">${l.rating?'★'+l.rating:''}</div></div>`;}
+$('#fabLocate').addEventListener('click',()=>{if(map){map.flyTo([S.user.lat,S.user.lng],15); toast('Centered on your location');}});
+$('#fabLive').addEventListener('click',function(){this.classList.toggle('active'); toast(this.classList.contains('active')?'Live updates on':'Live updates paused');});
+$('#navCancel').addEventListener('click',()=>{cancelNav(); speak('Navigation cancelled.'); goto('drive');});
+$('#navRepeat').addEventListener('click',()=>{if(S.lastAnswer)speak(S.lastAnswer);});
+$('#navArrived').addEventListener('click',()=>{cancelNav(); speak('Glad you found a spot. Drive safely!'); goto('drive');});
+
+/* ============================================================
+   v2: Spot-level booking · parking session · live AI camera
+   ============================================================ */
+const SPOT_DATA={};
+const CAR_COLORS=['#5EEAD4','#FB7185','#60A5FA','#FBBF24','#A78BFA','#F472B6','#94A3B8'];
+function carSVG(color){return `<svg class="car-svg" viewBox="0 0 100 52" xmlns="http://www.w3.org/2000/svg">
+  <rect x="10" y="14" width="80" height="26" rx="10" fill="${color}"/>
+  <rect x="28" y="8" width="44" height="18" rx="7" fill="${color}" opacity=".85"/>
+  <rect x="32" y="11" width="16" height="11" rx="3" fill="#1A2230" opacity=".7"/>
+  <rect x="52" y="11" width="16" height="11" rx="3" fill="#1A2230" opacity=".7"/>
+  <circle cx="26" cy="42" r="7" fill="#1A2230"/><circle cx="74" cy="42" r="7" fill="#1A2230"/>
+  <circle cx="26" cy="42" r="3" fill="#3A4350"/><circle cx="74" cy="42" r="3" fill="#3A4350"/>
+  <rect x="6" y="20" width="5" height="8" rx="2" fill="#FEF08A"/>
+  <rect x="89" y="20" width="5" height="8" rx="2" fill="#FB7185"/>
+</svg>`;}
+function ensureSpots(lotId){
+  if(SPOT_DATA[lotId])return SPOT_DATA[lotId];
+  const l=LOTS.find(x=>x.id===lotId);
+  const occRate=l?1-l.avail/l.total:0.6;
+  const arr=[];
+  for(let i=1;i<=12;i++){
+    const r=Math.random(); let state='free';
+    if(r<occRate)state='occ'; else if(r<occRate+0.12)state='booked';
+    arr.push({id:'P'+i,state,carColor:CAR_COLORS[i%CAR_COLORS.length]});
+  }
+  SPOT_DATA[lotId]=arr; return arr;
+}
+function renderSpots(lotId){
+  const l=LOTS.find(x=>x.id===lotId); if(!l)return;
+  const spots=ensureSpots(lotId);
+  $('#spotsLotName').textContent=l.name+' · '+spots.filter(s=>s.state==='free').length+' free now';
+  $('#spotGrid').innerHTML=spots.map((s,i)=>{
+    if(s.state==='occ')return `<div class="spot-cell occ" data-i="${i}"><span class="sp-id">${s.id}</span>${carSVG(s.carColor)}</div>`;
+    if(s.state==='booked')return `<div class="spot-cell booked" data-i="${i}"><span class="sp-id">${s.id}</span><span class="bk"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Booking</span></div>`;
+    if(s.state==='mine')return `<div class="spot-cell free mine sel" data-i="${i}"><span class="sp-id">${s.id}</span><span class="sp-status">Your spot</span><span class="sp-sub">Tap to end</span></div>`;
+    return `<div class="spot-cell free" data-i="${i}"><span class="sp-id">${s.id}</span><span class="sp-status">Available</span><span class="sp-sub">Tap to book</span></div>`;
+  }).join('');
+  $('#spotGrid').querySelectorAll('.spot-cell').forEach(c=>c.addEventListener('click',()=>{
+    const s=spots[+c.dataset.i];
+    if(s.state==='occ'){toast(s.id+' is occupied');return;}
+    if(s.state==='booked'){toast(s.id+' is booked by another driver');return;}
+    if(s.state==='mine'){endSession();return;}
+    bookSpot(lotId,s);
+  }));
+  // session card defaults
+  const m=l.hours.match(/(\d{1,2}):(\d{2})\s*$/); const close=m?m[1]+':'+m[2]:'22:00';
+  if(!S.session||!S.session.active){$('#dialTime').textContent=close; $('#dialState').textContent='Until close'; setDialArc(.72,'var(--ok)'); $('#parkToggle').textContent='Park'; $('#parkToggle').classList.remove('ended'); $('#sessionTitle').textContent='Closing Time';}
+}
+function bookSpot(lotId,s){
+  s.state='mine';
+  S.session={active:true,lotId,spotId:s.id,startTs:Date.now(),totalMs:2*3600*1000}; // 2h parking
+  speak('Spot '+s.id+' booked at '+LOTS.find(x=>x.id===lotId).name+'. Barrier will open on arrival. Timer started.');
+  toast('Booked '+s.id+' · barrier reserved');
+  renderSpots(lotId); startSessionTimer();
+}
+let sessionTimer=null;
+function startSessionTimer(){
+  if(sessionTimer)clearInterval(sessionTimer);
+  sessionTimer=setInterval(updateSessionDial,1000); updateSessionDial();
+}
+function updateSessionDial(){
+  const se=S.session; if(!se||!se.active)return;
+  const left=Math.max(0,se.totalMs-(Date.now()-se.startTs));
+  const mm=Math.floor(left/60000), ss=Math.floor((left%60000)/1000);
+  $('#dialTime').textContent=String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0');
+  $('#dialState').textContent='Parking · '+se.spotId;
+  const f=left/se.totalMs;
+  const col=f<.15?'var(--bad)':(f<.35?'var(--warn)':'var(--ok)');
+  setDialArc(f,col);
+  if(left<=0){endSession(true);}
+}
+function setDialArc(f,col){const c=540; const arc=$('#dialArc'); if(arc){arc.style.strokeDashoffset=String(c*(1-Math.max(0,Math.min(1,f)))); arc.style.stroke=col;}}
+function endSession(expired){
+  const se=S.session; if(!se){return;}
+  if(sessionTimer){clearInterval(sessionTimer);sessionTimer=null;}
+  const hrs=(Date.now()-se.startTs)/3600000;
+  const l=LOTS.find(x=>x.id===se.lotId);
+  const cost=Math.max(0,Math.round(hrs*(l?l.price:50)));
+  speak((expired?'Time is up. ':'')+'Parking ended at '+se.spotId+'. Total fee '+cost+' baht. Thank you for using SwapSpot.');
+  toast('Parking ended · ฿'+cost+' · see you next trip');
+  // release spot
+  const spots=SPOT_DATA[se.lotId]; if(spots){const s=spots.find(x=>x.id===se.spotId); if(s)s.state='free';}
+  S.session=null;
+  $('#parkToggle').textContent='Park'; $('#parkToggle').classList.remove('ended');
+  if(S.view==='spots')renderSpots(se.lotId);
+}
+/* session controls (static elements) */
+$('#parkToggle').addEventListener('click',()=>{
+  if(S.session&&S.session.active){endSession(false);}
+  else{ const l=LOTS.find(x=>x.id===S.selectedId); const spots=ensureSpots(S.selectedId); const free=spots.find(s=>s.state==='free');
+    if(!free){toast('No free spot to park in — pick another lot');return;}
+    bookSpot(S.selectedId,free); }
+});
+$$('.day-tab').forEach(t=>t.addEventListener('click',()=>{
+  $$('.day-tab').forEach(x=>x.classList.remove('on')); t.classList.add('on');
+  toast('Session set to '+t.textContent);
+}));
+
+/* ---------- Live AI camera detection ---------- */
+let camBoxes=[], camRefresh=null;
+function openCamera(lotId){
+  const l=LOTS.find(x=>x.id===lotId); if(!l)return;
+  $('#camLotName').textContent=l.name+' · Camera 01';
+  $('#camSub').textContent='AI vision detection · '+l.avail+' free · refreshing every 3s';
+  genCamBoxes(l); drawCamBoxes();
+  if(camRefresh)clearInterval(camRefresh);
+  camRefresh=setInterval(()=>{genCamBoxes(l,true); drawCamBoxes();},3000);
+}
+function genCamBoxes(l,shuffle){
+  // three rows of spots approximating the CCTV frame; green=free red=occ yellow=EV
+  const rows=[{y:8,h:22,count:8},{y:38,h:26,count:7},{y:72,h:22,count:8}];
+  const boxes=[]; let id=0;
+  const occRate=1-l.avail/l.total;
+  rows.forEach(row=>{
+    const w=88/row.count;
+    for(let i=0;i<row.count;i++){
+      const r=Math.random(); let type='free';
+      if(r<occRate)type='occ'; else if(id%9===4)type='ev';
+      boxes.push({id:id++,x:6+i*w+1,y:row.y,w:w-1.5,h:row.h,type});
+    }
+  });
+  camBoxes=boxes;
+  const free=boxes.filter(b=>b.type==='free').length, occ=boxes.filter(b=>b.type==='occ').length;
+  $('#camFree').textContent=free; $('#camOcc').textContent=occ;
+}
+function drawCamBoxes(){
+  const labels={free:'FREE',occ:'OCC',ev:'EV'};
+  $('#camOverlay').innerHTML=camBoxes.map(b=>
+    `<div class="det-box ${b.type}" style="left:${b.x}%;top:${b.y}%;width:${b.w}%;height:${b.h}%;animation-delay:${(b.id*0.13).toFixed(2)}s"><span class="tag">${labels[b.type]} ${b.id+1}</span></div>`
+  ).join('');
+}
+$('#camBook').addEventListener('click',()=>{
+  const spots=ensureSpots(S.selectedId); const free=spots.find(s=>s.state==='free');
+  if(!free){toast('No free spot detected right now');return;}
+  bookSpot(S.selectedId,free); goto('spots');
+});
+
+/* ---------- Init ---------- */
+function init(){
+  applySettingsUI();
+  updateNearestCard();
+  $('#pillData').classList.add('on');
+  // welcome
+  setTimeout(()=>{
+    if(!S.muted&&S.settings.voiceOut) speak('SwapSpot ready. Tap the mic and ask for parking.');
+    else setAiLine('<span class="dim">SwapSpot ready · tap the mic and ask for parking.</span>','');
+  },600);
+  // keyboard: space = push to talk
+  document.addEventListener('keydown',e=>{ if(e.code==='Space'&&!e.repeat&&['INPUT','SELECT','TEXTAREA'].indexOf(document.activeElement.tagName)===-1){e.preventDefault(); if(S.listening)stopListening(); else startListening();} });
+}
+init();
+
+</script>
+</body>
+</html>
