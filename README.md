@@ -2,8 +2,6 @@
 
 A hands-free, voice-first parking finder web app built for use while driving. Talk to it like an AI assistant instead of calling parking lots to ask for free spots. It listens through your mic, answers through your speaker, and can navigate you to the best available lot.
 
-**Live demo:** https://my.dolawork.site/p/HFxhhI7Vqt4hHGmjxvOlU8Btg7f
-
 ## Features
 
 - **Voice input & output** — Web Speech API (SpeechRecognition + SpeechSynthesis). Optional "Hey SwapSpot" wake-word mode. Spacebar = push-to-talk.
