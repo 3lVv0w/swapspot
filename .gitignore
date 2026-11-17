@@ -1,4 +1,12 @@
 .DS_Store
 *.log
 node_modules/
+.next/
+*.tsbuildinfo
+.env*
+!.env.example
 .preview/
+
+
+#Ignore vscode AI rules
+.github/instructions/codacy.instructions.md
